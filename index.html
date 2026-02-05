@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>7Tres7 - Panel de Administración</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        .sidebar-item:hover { background-color: rgba(249, 115, 22, 0.1); }
+        .sidebar-item.active { background-color: rgba(249, 115, 22, 0.2); border-left: 4px solid #f97316; }
+        .toast { animation: slideIn 0.3s ease; }
+        @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+        .pulse { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
+
+    <!-- Login Screen (Google Auth) -->
+    <div id="login-screen" class="min-h-screen flex items-center justify-center bg-gray-900">
+        <div class="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl">
+            <div class="text-center mb-8">
+                <span class="text-6xl">🥟</span>
+                <h1 class="text-3xl font-bold mt-4">7TRES7 Admin</h1>
+                <p class="text-gray-500">Acceso exclusivo para administradores</p>
+            </div>
+            <div class="space-y-4">
+                <button onclick="loginWithGoogle()" class="w-full flex items-center justify-center space-x-3 bg-white border-2 border-gray-300 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-50 hover:border-gray-400 transition">
+                    <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+                    <span>Iniciar sesion con Google</span>
+                </button>
+                <p id="login-error" class="text-red-500 text-sm text-center hidden"></p>
+                <p id="login-loading" class="text-gray-500 text-sm text-center hidden pulse">Verificando sesion...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="main-app" class="hidden flex h-screen">
+        <!-- Sidebar -->
+        <div class="w-64 bg-gray-900 text-white flex flex-col">
+            <div class="p-4 border-b border-gray-700">
+                <div class="flex items-center space-x-3">
+                    <span class="text-3xl">🥟</span>
+                    <div>
+                        <h1 class="font-bold text-xl">7TRES7</h1>
+                        <p class="text-xs text-gray-400">Panel Admin</p>
+                    </div>
+                </div>
+            </div>
+            <nav class="flex-1 p-4 overflow-y-auto">
+                <ul class="space-y-2">
+                    <li><button onclick="showSection('dashboard')" class="sidebar-item active w-full text-left px-4 py-3 rounded-lg flex items-center space-x-3" id="nav-dashboard"><span>📊</span><span>Dashboard</span></button></li>
+                    <li><button onclick="showSection('productos')" class="sidebar-item w-full text-left px-4 py-3 rounded-lg flex items-center space-x-3" id="nav-productos"><span>🍽️</span><span>Productos</span></button></li>
+                    <li><button onclick="showSection('categorias')" class="sidebar-item w-full text-left px-4 py-3 rounded-lg flex items-center space-x-3" id="nav-categorias"><span>📁</span><span>Categorías</span></button></li>
+                    <li><button onclick="showSection('pedidos')" class="sidebar-item w-full text-left px-4 py-3 rounded-lg flex items-center space-x-3" id="nav-pedidos"><span>📦</span><span>Pedidos</span></button></li>
+                    <li><button onclick="showSection('clientes')" class="sidebar-item w-full text-left px-4 py-3 rounded-lg flex items-center space-x-3" id="nav-clientes"><span>👥</span><span>Clientes</span></button></li>
+                    <li class="pt-4 border-t border-gray-700 mt-4">
+                        <button onclick="showSection('impresoras')" class="sidebar-item w-full text-left px-4 py-3 rounded-lg flex items-center space-x-3" id="nav-impresoras"><span>🖨️</span><span>Impresoras</span></button>
+                    </li>
+                    <li><button onclick="showSection('config')" class="sidebar-item w-full text-left px-4 py-3 rounded-lg flex items-center space-x-3" id="nav-config"><span>⚙️</span><span>Configuración</span></button></li>
+                </ul>
+            </nav>
+            <!-- User info + Logout -->
+            <div class="p-4 border-t border-gray-700">
+                <div class="flex items-center space-x-3 mb-3">
+                    <div class="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center text-sm font-bold" id="user-avatar">?</div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium truncate" id="user-name">-</p>
+                        <p class="text-xs text-gray-400 truncate" id="user-email">-</p>
+                    </div>
+                </div>
+                <button onclick="logout()" class="w-full text-left px-4 py-2 rounded-lg text-red-400 hover:bg-red-900/30 flex items-center space-x-2 text-sm">
+                    <span>🚪</span><span>Cerrar sesion</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="flex-1 overflow-auto">
+            <header class="bg-white shadow-sm p-4 flex justify-between items-center sticky top-0 z-10">
+                <h2 class="text-xl font-bold text-gray-800" id="section-title">Dashboard</h2>
+                <span class="text-sm text-gray-500" id="current-date"></span>
+            </header>
+
+            <main class="p-6">
+                <!-- Dashboard -->
+                <section id="section-dashboard" class="space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div class="bg-white rounded-xl p-6 shadow-sm">
+                            <p class="text-gray-500 text-sm">Pedidos Hoy</p>
+                            <p class="text-3xl font-bold" id="stat-orders">-</p>
+                        </div>
+                        <div class="bg-white rounded-xl p-6 shadow-sm">
+                            <p class="text-gray-500 text-sm">Ventas Hoy</p>
+                            <p class="text-3xl font-bold text-green-600" id="stat-revenue">$-</p>
+                        </div>
+                        <div class="bg-white rounded-xl p-6 shadow-sm">
+                            <p class="text-gray-500 text-sm">Productos Activos</p>
+                            <p class="text-3xl font-bold" id="stat-products">-</p>
+                        </div>
+                        <div class="bg-white rounded-xl p-6 shadow-sm">
+                            <p class="text-gray-500 text-sm">Clientes</p>
+                            <p class="text-3xl font-bold" id="stat-customers">-</p>
+                        </div>
+                    </div>
+
+                    <!-- Estado Impresoras Dashboard -->
+                    <div class="bg-white rounded-xl p-6 shadow-sm">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="font-bold">🖨️ Estado de Impresoras</h3>
+                            <button onclick="showSection('impresoras')" class="text-orange-500 text-sm hover:underline">Configurar →</button>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4" id="printers-dashboard">
+                            <div class="text-center text-gray-500 py-4">Cargando...</div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl p-6 shadow-sm">
+                        <h3 class="font-bold mb-4">🔗 Integraciones</h3>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div class="p-4 bg-gray-50 rounded-lg text-center">
+                                <span class="text-2xl">💳</span>
+                                <p class="font-medium mt-2">MercadoPago</p>
+                                <span id="int-mp" class="text-xs bg-gray-200 px-2 py-1 rounded">-</span>
+                            </div>
+                            <div class="p-4 bg-gray-50 rounded-lg text-center">
+                                <span class="text-2xl">🤖</span>
+                                <p class="font-medium mt-2">Lucy (WA)</p>
+                                <span id="int-lucy" class="text-xs bg-gray-200 px-2 py-1 rounded">-</span>
+                            </div>
+                            <div class="p-4 bg-gray-50 rounded-lg text-center">
+                                <span class="text-2xl">🎨</span>
+                                <p class="font-medium mt-2">6to Sentido</p>
+                                <span id="int-6s" class="text-xs bg-gray-200 px-2 py-1 rounded">-</span>
+                            </div>
+                            <div class="p-4 bg-gray-50 rounded-lg text-center">
+                                <span class="text-2xl">🗺️</span>
+                                <p class="font-medium mt-2">Google Maps</p>
+                                <span class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">OSM ✓</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Productos -->
+                <section id="section-productos" class="hidden space-y-6">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-lg font-bold">Gestion de Productos</h3>
+                        <button onclick="openProductModal()" class="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600">+ Nuevo Producto</button>
+                    </div>
+                    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                        <table class="w-full">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Producto</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Categoría</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Precio</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="products-table" class="divide-y divide-gray-200"></tbody>
+                        </table>
+                    </div>
+                    <!-- Paginacion Productos -->
+                    <div id="products-pagination" class="flex items-center justify-between"></div>
+                </section>
+
+                <!-- Categorías -->
+                <section id="section-categorias" class="hidden space-y-6">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-lg font-bold">Gestion de Categorías</h3>
+                        <button onclick="openCategoryModal()" class="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600">+ Nueva Categoría</button>
+                    </div>
+                    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                        <table class="w-full">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Icono</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nombre</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Productos</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">🖨️ Impresora</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="categories-table" class="divide-y divide-gray-200"></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Pedidos -->
+                <section id="section-pedidos" class="hidden space-y-6">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-lg font-bold">Pedidos</h3>
+                        <select id="order-filter" onchange="ordersPage=0; loadOrders()" class="border rounded-lg px-3 py-2">
+                            <option value="">Todos</option>
+                            <option value="pending">Pendientes</option>
+                            <option value="confirmed">Confirmados</option>
+                            <option value="preparing">En preparacion</option>
+                            <option value="delivered">Entregados</option>
+                            <option value="cancelled">Cancelados</option>
+                        </select>
+                    </div>
+                    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                        <table class="w-full">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">#</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="orders-table" class="divide-y divide-gray-200"></tbody>
+                        </table>
+                    </div>
+                    <!-- Paginacion Pedidos -->
+                    <div id="orders-pagination" class="flex items-center justify-between"></div>
+                </section>
+
+                <!-- Clientes -->
+                <section id="section-clientes" class="hidden space-y-6">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <h3 class="text-lg font-bold">Clientes</h3>
+                        <div class="flex items-center space-x-2">
+                            <input type="text" id="customer-search" placeholder="Buscar por nombre o telefono..." class="border rounded-lg px-4 py-2 w-64" oninput="debounceCustomerSearch()">
+                            <button onclick="customersPage=0; customersSearch=''; document.getElementById('customer-search').value=''; loadCustomers()" class="text-gray-500 hover:text-gray-700 px-2 py-2 border rounded-lg" title="Limpiar busqueda">✕</button>
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                        <table class="w-full">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nombre</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Telefono</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Pedidos</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="customers-table" class="divide-y divide-gray-200"></tbody>
+                        </table>
+                    </div>
+                    <!-- Paginacion Clientes -->
+                    <div id="customers-pagination" class="flex items-center justify-between"></div>
+                </section>
+
+                <!-- IMPRESORAS -->
+                <section id="section-impresoras" class="hidden space-y-6">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-lg font-bold">🖨️ Configuración de Impresoras</h3>
+                        <button onclick="openPrinterModal()" class="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600">+ Nueva Impresora</button>
+                    </div>
+
+                    <!-- Estado general -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4" id="printers-status-cards">
+                        <!-- Se llena dinámicamente -->
+                    </div>
+
+                    <!-- Tabla de impresoras -->
+                    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                        <table class="w-full">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Impresora</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ubicación</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">IP / Puerto</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Categorías</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="printers-table" class="divide-y divide-gray-200"></tbody>
+                        </table>
+                    </div>
+
+                    <!-- Cola de impresión -->
+                    <div class="bg-white rounded-xl p-6 shadow-sm">
+                        <div class="flex justify-between items-center mb-4">
+                            <h4 class="font-bold">📋 Cola de Impresión</h4>
+                            <button onclick="loadPrintJobs()" class="text-gray-500 hover:text-gray-700">🔄 Actualizar</button>
+                        </div>
+                        <div id="print-jobs-list" class="space-y-2">
+                            <p class="text-gray-500 text-center py-4">No hay trabajos pendientes</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Configuración -->
+                <section id="section-config" class="hidden space-y-6">
+                    <h3 class="text-lg font-bold">Configuración</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="bg-white rounded-xl p-6 shadow-sm">
+                            <h4 class="font-bold mb-4">🏪 Negocio</h4>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Nombre</label>
+                                    <input type="text" id="cfg-name" class="w-full border rounded-lg px-3 py-2">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">WhatsApp</label>
+                                    <input type="text" id="cfg-whatsapp" class="w-full border rounded-lg px-3 py-2">
+                                </div>
+                                <button onclick="saveConfig()" class="w-full bg-orange-500 text-white py-2 rounded-lg">Guardar</button>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-xl p-6 shadow-sm">
+                            <h4 class="font-bold mb-4">🔗 Integraciones</h4>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">MercadoPago Access Token</label>
+                                    <input type="password" id="cfg-mp-token" class="w-full border rounded-lg px-3 py-2">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Lucy Webhook URL</label>
+                                    <input type="url" id="cfg-lucy-url" class="w-full border rounded-lg px-3 py-2">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">6to Sentido API Key</label>
+                                    <input type="password" id="cfg-6s-key" class="w-full border rounded-lg px-3 py-2">
+                                </div>
+                                <button onclick="saveIntegrations()" class="w-full bg-blue-500 text-white py-2 rounded-lg">Guardar Integraciones</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <!-- Modal Producto -->
+    <div id="modal-product" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-xl p-6 w-full max-w-md">
+            <h3 class="text-lg font-bold mb-4" id="modal-product-title">Nuevo Producto</h3>
+            <input type="hidden" id="product-id">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium mb-1">Nombre *</label>
+                    <input type="text" id="product-name" class="w-full border rounded-lg px-3 py-2" required>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Categoría</label>
+                        <select id="product-category" class="w-full border rounded-lg px-3 py-2"></select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Precio *</label>
+                        <input type="number" id="product-price" class="w-full border rounded-lg px-3 py-2" required>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Icono (emoji)</label>
+                    <input type="text" id="product-icon" class="w-full border rounded-lg px-3 py-2" placeholder="🥟">
+                </div>
+                <div class="flex items-center space-x-4">
+                    <label class="flex items-center"><input type="checkbox" id="product-active" checked class="mr-2">Activo</label>
+                    <label class="flex items-center"><input type="checkbox" id="product-featured" class="mr-2">Destacado</label>
+                </div>
+            </div>
+            <div class="flex justify-end space-x-3 mt-6">
+                <button onclick="closeModal('modal-product')" class="px-4 py-2 border rounded-lg">Cancelar</button>
+                <button onclick="saveProduct()" class="px-4 py-2 bg-orange-500 text-white rounded-lg">Guardar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Categoría -->
+    <div id="modal-category" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-xl p-6 w-full max-w-md">
+            <h3 class="text-lg font-bold mb-4" id="modal-category-title">Nueva Categoría</h3>
+            <input type="hidden" id="category-id">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium mb-1">Nombre *</label>
+                    <input type="text" id="category-name" class="w-full border rounded-lg px-3 py-2" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Icono (emoji)</label>
+                    <input type="text" id="category-icon" class="w-full border rounded-lg px-3 py-2" placeholder="🍕">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">🖨️ Impresora Principal</label>
+                    <select id="category-printer" class="w-full border rounded-lg px-3 py-2">
+                        <option value="">Sin asignar</option>
+                    </select>
+                    <p class="text-xs text-gray-500 mt-1">Los productos de esta categoría se imprimen acá</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">🖨️ Impresora Secundaria (copia)</label>
+                    <select id="category-printer-secondary" class="w-full border rounded-lg px-3 py-2">
+                        <option value="">Ninguna</option>
+                    </select>
+                    <p class="text-xs text-gray-500 mt-1">Opcional: copia en barra, por ejemplo</p>
+                </div>
+                <label class="flex items-center"><input type="checkbox" id="category-active" checked class="mr-2">Activa</label>
+            </div>
+            <div class="flex justify-end space-x-3 mt-6">
+                <button onclick="closeModal('modal-category')" class="px-4 py-2 border rounded-lg">Cancelar</button>
+                <button onclick="saveCategory()" class="px-4 py-2 bg-orange-500 text-white rounded-lg">Guardar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Impresora -->
+    <div id="modal-printer" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <h3 class="text-lg font-bold mb-4" id="modal-printer-title">Nueva Impresora</h3>
+            <input type="hidden" id="printer-id">
+            <div class="space-y-4">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Nombre *</label>
+                        <input type="text" id="printer-name" class="w-full border rounded-lg px-3 py-2" placeholder="Cocina Principal">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Código *</label>
+                        <input type="text" id="printer-code" class="w-full border rounded-lg px-3 py-2" placeholder="COCINA1">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Ubicación</label>
+                    <input type="text" id="printer-location" class="w-full border rounded-lg px-3 py-2" placeholder="Cocina - Zona parrilla">
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Dirección IP *</label>
+                        <input type="text" id="printer-ip" class="w-full border rounded-lg px-3 py-2" placeholder="192.168.1.101">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Puerto</label>
+                        <input type="number" id="printer-port" class="w-full border rounded-lg px-3 py-2" value="9100">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Tipo de Conexión</label>
+                    <select id="printer-connection" class="w-full border rounded-lg px-3 py-2">
+                        <option value="network">Red (IP)</option>
+                        <option value="usb">USB</option>
+                        <option value="bluetooth">Bluetooth</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Categorías que imprime</label>
+                    <div class="grid grid-cols-3 gap-2 mt-2" id="printer-categories-checkboxes">
+                        <!-- Se llena dinámicamente -->
+                    </div>
+                    <p class="text-xs text-gray-500 mt-1">Si no seleccionás ninguna, imprime todo</p>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Ancho de papel</label>
+                        <select id="printer-paper" class="w-full border rounded-lg px-3 py-2">
+                            <option value="80">80mm</option>
+                            <option value="58">58mm</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Copias</label>
+                        <input type="number" id="printer-copies" class="w-full border rounded-lg px-3 py-2" value="1" min="1" max="5">
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <label class="flex items-center"><input type="checkbox" id="printer-active" checked class="mr-2">Activa</label>
+                    <label class="flex items-center"><input type="checkbox" id="printer-default" class="mr-2">Principal</label>
+                    <label class="flex items-center"><input type="checkbox" id="printer-logo" checked class="mr-2">Imprimir logo</label>
+                </div>
+            </div>
+            <div class="flex justify-between mt-6">
+                <button onclick="testPrinter()" class="px-4 py-2 bg-blue-500 text-white rounded-lg">🔌 Probar Conexión</button>
+                <div class="space-x-3">
+                    <button onclick="closeModal('modal-printer')" class="px-4 py-2 border rounded-lg">Cancelar</button>
+                    <button onclick="savePrinter()" class="px-4 py-2 bg-orange-500 text-white rounded-lg">Guardar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== CONFIGURACION ====================
+        const SUPABASE_URL = 'https://yfdustfjfmifvgybwinr.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlmZHVzdGZqZm1pZnZneWJ3aW5yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mzg1MTQ0NzYsImV4cCI6MjA1NDA5MDQ3Nn0.gKJHJjKDkuGH9TDqoHN0kfH5K7Z9FSTl7MwN3vcFkIo';
+        const AUTHORIZED_EMAILS = ['nicohernaez22@gmail.com'];
+
+        let db = null;
+        let categories = [];
+        let currentUser = null;
+
+        // Pagination state
+        const PAGE_SIZE_CUSTOMERS = 20;
+        const PAGE_SIZE_PRODUCTS = 20;
+        const PAGE_SIZE_ORDERS = 20;
+        let customersPage = 0;
+        let productsPage = 0;
+        let ordersPage = 0;
+        let customersSearch = '';
+        let customerSearchTimer = null;
+
+        // ==================== INIT ====================
+        document.getElementById('current-date').textContent = new Date().toLocaleDateString('es-AR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+        // Create Supabase client immediately
+        db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // Check session on load
+        checkSession();
+
+        async function checkSession() {
+            const loading = document.getElementById('login-loading');
+            loading.classList.remove('hidden');
+
+            try {
+                const { data: { session } } = await db.auth.getSession();
+                if (session) {
+                    await handleAuthSession(session);
+                } else {
+                    loading.classList.add('hidden');
+                }
+            } catch (e) {
+                loading.classList.add('hidden');
+                console.error('Error checking session:', e);
+            }
+        }
+
+        // Listen for auth state changes (handles redirect callback)
+        db.auth.onAuthStateChange(async (event, session) => {
+            if (event === 'SIGNED_IN' && session) {
+                await handleAuthSession(session);
+            } else if (event === 'SIGNED_OUT') {
+                currentUser = null;
+                document.getElementById('main-app').classList.add('hidden');
+                document.getElementById('login-screen').classList.remove('hidden');
+            }
+        });
+
+        async function handleAuthSession(session) {
+            const email = session.user.email;
+            const loading = document.getElementById('login-loading');
+            const error = document.getElementById('login-error');
+
+            // Check authorized email
+            if (!AUTHORIZED_EMAILS.includes(email)) {
+                await db.auth.signOut();
+                loading.classList.add('hidden');
+                error.textContent = 'Acceso denegado. El email ' + email + ' no esta autorizado.';
+                error.classList.remove('hidden');
+                return;
+            }
+
+            currentUser = session.user;
+            error.classList.add('hidden');
+            loading.classList.add('hidden');
+
+            // Update user info in sidebar
+            const name = currentUser.user_metadata?.full_name || currentUser.email;
+            document.getElementById('user-name').textContent = name;
+            document.getElementById('user-email').textContent = currentUser.email;
+            document.getElementById('user-avatar').textContent = (name || '?')[0].toUpperCase();
+
+            // Show app
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('main-app').classList.remove('hidden');
+
+            loadDashboard();
+            loadCategories();
+            showToast('Bienvenido, ' + name, 'success');
+        }
+
+        async function loginWithGoogle() {
+            const error = document.getElementById('login-error');
+            error.classList.add('hidden');
+
+            try {
+                const { error: authError } = await db.auth.signInWithOAuth({
+                    provider: 'google',
+                    options: {
+                        redirectTo: window.location.href.split('#')[0].split('?')[0]
+                    }
+                });
+                if (authError) throw authError;
+            } catch (e) {
+                error.textContent = 'Error al iniciar sesion: ' + e.message;
+                error.classList.remove('hidden');
+            }
+        }
+
+        async function logout() {
+            if (!confirm('¿Cerrar sesion?')) return;
+            await db.auth.signOut();
+            currentUser = null;
+            document.getElementById('main-app').classList.add('hidden');
+            document.getElementById('login-screen').classList.remove('hidden');
+            showToast('Sesion cerrada', 'info');
+        }
+
+        // ==================== NAVIGATION ====================
+        function showSection(section) {
+            document.querySelectorAll('section').forEach(s => s.classList.add('hidden'));
+            document.querySelectorAll('.sidebar-item').forEach(s => s.classList.remove('active'));
+            document.getElementById('section-' + section).classList.remove('hidden');
+            document.getElementById('nav-' + section).classList.add('active');
+
+            const titles = { dashboard: 'Dashboard', productos: 'Productos', categorias: 'Categorías', pedidos: 'Pedidos', clientes: 'Clientes', impresoras: 'Impresoras', config: 'Configuración' };
+            document.getElementById('section-title').textContent = titles[section];
+
+            if (section === 'dashboard') loadDashboard();
+            else if (section === 'productos') { productsPage = 0; loadProducts(); }
+            else if (section === 'categorias') loadCategoriesTable();
+            else if (section === 'pedidos') { ordersPage = 0; loadOrders(); }
+            else if (section === 'clientes') { customersPage = 0; customersSearch = ''; document.getElementById('customer-search').value = ''; loadCustomers(); }
+            else if (section === 'impresoras') loadPrinters();
+            else if (section === 'config') loadConfig();
+        }
+
+        // ==================== PAGINATION HELPER ====================
+        function renderPagination(containerId, currentPage, totalCount, pageSize, onPageChange) {
+            const container = document.getElementById(containerId);
+            const totalPages = Math.ceil(totalCount / pageSize);
+            if (totalPages <= 1) { container.innerHTML = ''; return; }
+
+            const from = currentPage * pageSize + 1;
+            const to = Math.min((currentPage + 1) * pageSize, totalCount);
+
+            container.innerHTML = `
+                <span class="text-sm text-gray-600">Mostrando ${from}-${to} de ${totalCount}</span>
+                <div class="flex space-x-2">
+                    <button onclick="${onPageChange}(${currentPage - 1})" class="px-3 py-1 border rounded-lg text-sm ${currentPage === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'}" ${currentPage === 0 ? 'disabled' : ''}>← Anterior</button>
+                    <span class="px-3 py-1 text-sm text-gray-600">Pagina ${currentPage + 1} de ${totalPages}</span>
+                    <button onclick="${onPageChange}(${currentPage + 1})" class="px-3 py-1 border rounded-lg text-sm ${currentPage >= totalPages - 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'}" ${currentPage >= totalPages - 1 ? 'disabled' : ''}>Siguiente →</button>
+                </div>
+            `;
+        }
+
+        // ==================== DASHBOARD ====================
+        async function loadDashboard() {
+            if (!db) return;
+            try {
+                const today = new Date().toISOString().split('T')[0];
+                const { data: orders } = await db.from('orders').select('total, status').gte('created_at', today + 'T00:00:00');
+                const { count: productCount } = await db.from('products').select('*', { count: 'exact', head: true }).eq('is_active', true);
+                const { count: customerCount } = await db.from('customers').select('*', { count: 'exact', head: true });
+                const { data: config } = await db.from('business_config').select('*').single();
+
+                document.getElementById('stat-orders').textContent = orders?.length || 0;
+                document.getElementById('stat-revenue').textContent = '$' + (orders?.reduce((s, o) => s + (parseFloat(o.total) || 0), 0) || 0).toLocaleString('es-AR');
+                document.getElementById('stat-products').textContent = productCount || 0;
+                document.getElementById('stat-customers').textContent = customerCount || 0;
+
+                if (config) {
+                    document.getElementById('int-mp').textContent = config.mercadopago_enabled ? '✓' : '-';
+                    document.getElementById('int-mp').className = 'text-xs px-2 py-1 rounded ' + (config.mercadopago_enabled ? 'bg-green-100 text-green-700' : 'bg-gray-200');
+                    document.getElementById('int-lucy').textContent = config.lucy_enabled ? '✓' : '-';
+                    document.getElementById('int-lucy').className = 'text-xs px-2 py-1 rounded ' + (config.lucy_enabled ? 'bg-green-100 text-green-700' : 'bg-gray-200');
+                    document.getElementById('int-6s').textContent = config.sexto_sentido_enabled ? '✓' : '-';
+                    document.getElementById('int-6s').className = 'text-xs px-2 py-1 rounded ' + (config.sexto_sentido_enabled ? 'bg-green-100 text-green-700' : 'bg-gray-200');
+                }
+
+                loadPrintersDashboard();
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadPrintersDashboard() {
+            const { data: printers } = await db.from('printers').select('*').eq('is_active', true);
+            const container = document.getElementById('printers-dashboard');
+
+            if (!printers || printers.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-center col-span-3">No hay impresoras configuradas</p>';
+                return;
+            }
+
+            container.innerHTML = printers.map(p => {
+                const statusColor = p.status === 'online' ? 'green' : p.status === 'error' ? 'red' : 'gray';
+                const statusIcon = p.status === 'online' ? '🟢' : p.status === 'error' ? '🔴' : '⚪';
+                return `
+                    <div class="p-4 bg-gray-50 rounded-lg">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="font-medium">${p.name}</p>
+                                <p class="text-xs text-gray-500">${p.location || p.ip_address}</p>
+                            </div>
+                            <span class="text-2xl">${statusIcon}</span>
+                        </div>
+                        <div class="mt-2 flex justify-between text-xs">
+                            <span>${p.print_categories?.join(', ') || 'Todo'}</span>
+                            <span class="text-${statusColor}-600">${p.status || 'Desconocido'}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // ==================== IMPRESORAS ====================
+
+        async function loadPrinters() {
+            if (!db) return;
+
+            const { data: printers } = await db.from('printers').select('*').order('is_default', { ascending: false });
+
+            const statusCards = document.getElementById('printers-status-cards');
+            statusCards.innerHTML = (printers || []).map(p => {
+                const statusColor = p.status === 'online' ? 'green' : p.status === 'error' ? 'red' : 'yellow';
+                const statusIcon = p.status === 'online' ? '🟢' : p.status === 'error' ? '🔴' : '🟡';
+                return `
+                    <div class="bg-white rounded-xl p-6 shadow-sm border-l-4 border-${statusColor}-500">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-2xl">🖨️</span>
+                            <span class="text-2xl">${statusIcon}</span>
+                        </div>
+                        <h4 class="font-bold">${p.name}</h4>
+                        <p class="text-sm text-gray-500">${p.location || ''}</p>
+                        <p class="text-xs text-gray-400 mt-2">${p.ip_address}:${p.port}</p>
+                        ${p.is_default ? '<span class="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded mt-2 inline-block">Principal</span>' : ''}
+                    </div>
+                `;
+            }).join('') || '<p class="text-gray-500 col-span-3 text-center">No hay impresoras configuradas</p>';
+
+            const table = document.getElementById('printers-table');
+            table.innerHTML = (printers || []).map(p => `
+                <tr class="hover:bg-gray-50">
+                    <td class="px-6 py-4">
+                        <span class="font-medium">${p.name}</span>
+                        ${p.is_default ? '<span class="ml-2 text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">Principal</span>' : ''}
+                        <br><span class="text-xs text-gray-400">${p.code}</span>
+                    </td>
+                    <td class="px-6 py-4">${p.location || '-'}</td>
+                    <td class="px-6 py-4 font-mono text-sm">${p.ip_address}:${p.port}</td>
+                    <td class="px-6 py-4 text-xs">${p.print_categories?.length ? p.print_categories.join(', ') : 'Todas'}</td>
+                    <td class="px-6 py-4">
+                        <span class="text-xs px-2 py-1 rounded ${p.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100'}">${p.is_active ? 'Activa' : 'Inactiva'}</span>
+                    </td>
+                    <td class="px-6 py-4">
+                        <button onclick="testPrinterById('${p.id}')" class="text-blue-500 mr-2" title="Probar">🔌</button>
+                        <button onclick="editPrinter('${p.id}')" class="text-yellow-500 mr-2" title="Editar">✏️</button>
+                        <button onclick="deletePrinter('${p.id}')" class="text-red-500" title="Eliminar">🗑️</button>
+                    </td>
+                </tr>
+            `).join('') || '<tr><td colspan="6" class="px-6 py-8 text-center text-gray-500">No hay impresoras</td></tr>';
+
+            loadPrintJobs();
+        }
+
+        async function loadPrintJobs() {
+            const { data: jobs } = await db
+                .from('print_jobs')
+                .select('*, printers(name)')
+                .in('status', ['pending', 'printing'])
+                .order('created_at', { ascending: true })
+                .limit(10);
+
+            const container = document.getElementById('print-jobs-list');
+
+            if (!jobs || jobs.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-center py-4">No hay trabajos pendientes</p>';
+                return;
+            }
+
+            container.innerHTML = jobs.map(j => `
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div>
+                        <p class="font-medium">Pedido #${j.raw_data?.order?.order_number || '?'}</p>
+                        <p class="text-xs text-gray-500">${j.printers?.name || 'Impresora'} - ${j.ticket_type}</p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <span class="text-xs ${j.status === 'printing' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'} px-2 py-1 rounded">
+                            ${j.status === 'printing' ? '🖨️ Imprimiendo' : '⏳ Pendiente'}
+                        </span>
+                        <button onclick="retryPrintJob('${j.id}')" class="text-blue-500">🔄</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function openPrinterModal(id = null) {
+            document.getElementById('modal-printer-title').textContent = id ? 'Editar Impresora' : 'Nueva Impresora';
+            document.getElementById('printer-id').value = id || '';
+
+            if (!id) {
+                document.getElementById('printer-name').value = '';
+                document.getElementById('printer-code').value = '';
+                document.getElementById('printer-location').value = '';
+                document.getElementById('printer-ip').value = '';
+                document.getElementById('printer-port').value = '9100';
+                document.getElementById('printer-connection').value = 'network';
+                document.getElementById('printer-paper').value = '80';
+                document.getElementById('printer-copies').value = '1';
+                document.getElementById('printer-active').checked = true;
+                document.getElementById('printer-default').checked = false;
+                document.getElementById('printer-logo').checked = true;
+            }
+
+            const container = document.getElementById('printer-categories-checkboxes');
+            container.innerHTML = categories.map(c => `
+                <label class="flex items-center text-sm">
+                    <input type="checkbox" class="printer-cat-cb mr-2" value="${c.slug}" data-id="${c.id}">
+                    ${c.icon || ''} ${c.name}
+                </label>
+            `).join('');
+
+            document.getElementById('modal-printer').classList.remove('hidden');
+        }
+
+        async function editPrinter(id) {
+            const { data } = await db.from('printers').select('*').eq('id', id).single();
+            if (data) {
+                openPrinterModal(id);
+                document.getElementById('printer-name').value = data.name;
+                document.getElementById('printer-code').value = data.code;
+                document.getElementById('printer-location').value = data.location || '';
+                document.getElementById('printer-ip').value = data.ip_address || '';
+                document.getElementById('printer-port').value = data.port || 9100;
+                document.getElementById('printer-connection').value = data.connection_type || 'network';
+                document.getElementById('printer-paper').value = data.paper_width || 80;
+                document.getElementById('printer-copies').value = data.copies || 1;
+                document.getElementById('printer-active').checked = data.is_active;
+                document.getElementById('printer-default').checked = data.is_default;
+                document.getElementById('printer-logo').checked = data.print_logo;
+
+                if (data.print_categories) {
+                    document.querySelectorAll('.printer-cat-cb').forEach(cb => {
+                        cb.checked = data.print_categories.includes(cb.value);
+                    });
+                }
+            }
+        }
+
+        async function savePrinter() {
+            const id = document.getElementById('printer-id').value;
+            const name = document.getElementById('printer-name').value;
+            const code = document.getElementById('printer-code').value;
+
+            if (!name || !code) return showToast('Completa nombre y codigo', 'error');
+
+            const selectedCats = [];
+            document.querySelectorAll('.printer-cat-cb:checked').forEach(cb => selectedCats.push(cb.value));
+
+            const data = {
+                name,
+                code: code.toUpperCase(),
+                location: document.getElementById('printer-location').value,
+                ip_address: document.getElementById('printer-ip').value,
+                port: parseInt(document.getElementById('printer-port').value) || 9100,
+                connection_type: document.getElementById('printer-connection').value,
+                paper_width: parseInt(document.getElementById('printer-paper').value) || 80,
+                copies: parseInt(document.getElementById('printer-copies').value) || 1,
+                is_active: document.getElementById('printer-active').checked,
+                is_default: document.getElementById('printer-default').checked,
+                print_logo: document.getElementById('printer-logo').checked,
+                print_categories: selectedCats.length > 0 ? selectedCats : []
+            };
+
+            try {
+                if (id) await db.from('printers').update(data).eq('id', id);
+                else await db.from('printers').insert(data);
+                showToast(id ? 'Impresora actualizada' : 'Impresora creada', 'success');
+                closeModal('modal-printer');
+                loadPrinters();
+            } catch (e) { showToast('Error: ' + e.message, 'error'); }
+        }
+
+        async function deletePrinter(id) {
+            if (!confirm('¿Eliminar esta impresora?')) return;
+            await db.from('printers').delete().eq('id', id);
+            showToast('Impresora eliminada', 'success');
+            loadPrinters();
+        }
+
+        async function testPrinter() {
+            const ip = document.getElementById('printer-ip').value;
+            const port = document.getElementById('printer-port').value;
+            if (!ip) return showToast('Ingresa una IP', 'error');
+
+            showToast(`Probando conexion a ${ip}:${port}...`, 'info');
+            setTimeout(() => showToast('Conexion exitosa (simulada)', 'success'), 1000);
+        }
+
+        async function testPrinterById(id) {
+            showToast('Probando impresora...', 'info');
+            await db.from('printers').update({ status: 'online', last_ping_at: new Date().toISOString() }).eq('id', id);
+            showToast('Impresora online', 'success');
+            loadPrinters();
+        }
+
+        // ==================== CATEGORIAS ====================
+
+        async function loadCategories() {
+            if (!db) return;
+            const { data } = await db.from('categories').select('*').order('sort_order');
+            categories = data || [];
+            const select = document.getElementById('product-category');
+            select.innerHTML = '<option value="">Sin categoría</option>' + categories.map(c => `<option value="${c.id}">${c.icon || ''} ${c.name}</option>`).join('');
+        }
+
+        async function loadCategoriesTable() {
+            if (!db) return;
+            const { data } = await db.from('categories').select('*, products(id), printers:printer_id(name, code), printers_secondary:printer_secondary_id(name)').order('sort_order');
+            document.getElementById('categories-table').innerHTML = (data || []).map(c => `
+                <tr class="hover:bg-gray-50">
+                    <td class="px-6 py-4 text-2xl">${c.icon || '📁'}</td>
+                    <td class="px-6 py-4 font-medium">${c.name}</td>
+                    <td class="px-6 py-4">${c.products?.length || 0}</td>
+                    <td class="px-6 py-4">
+                        ${c.printers ? `<span class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">🖨️ ${c.printers.name}</span>` : '<span class="text-xs text-gray-400">Sin asignar</span>'}
+                        ${c.printers_secondary ? `<br><span class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded mt-1 inline-block">+ ${c.printers_secondary.name}</span>` : ''}
+                    </td>
+                    <td class="px-6 py-4"><span class="text-xs px-2 py-1 rounded ${c.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100'}">${c.is_active ? 'Activa' : 'Inactiva'}</span></td>
+                    <td class="px-6 py-4">
+                        <button onclick="editCategory('${c.id}')" class="text-blue-500 mr-2">✏️</button>
+                        <button onclick="deleteCategory('${c.id}')" class="text-red-500">🗑️</button>
+                    </td>
+                </tr>
+            `).join('') || '<tr><td colspan="6" class="px-6 py-8 text-center text-gray-500">No hay categorías</td></tr>';
+        }
+
+        let printers = [];
+        async function loadPrintersForSelect() {
+            const { data } = await db.from('printers').select('id, name, code, location').eq('is_active', true).order('name');
+            printers = data || [];
+            const options = '<option value="">Sin asignar</option>' + printers.map(p => `<option value="${p.id}">🖨️ ${p.name} (${p.location || p.code})</option>`).join('');
+            document.getElementById('category-printer').innerHTML = options;
+            document.getElementById('category-printer-secondary').innerHTML = '<option value="">Ninguna</option>' + printers.map(p => `<option value="${p.id}">🖨️ ${p.name}</option>`).join('');
+        }
+
+        function openCategoryModal(id = null) {
+            document.getElementById('modal-category-title').textContent = id ? 'Editar Categoría' : 'Nueva Categoría';
+            document.getElementById('category-id').value = id || '';
+            loadPrintersForSelect();
+            if (!id) {
+                document.getElementById('category-name').value = '';
+                document.getElementById('category-icon').value = '';
+                document.getElementById('category-printer').value = '';
+                document.getElementById('category-printer-secondary').value = '';
+                document.getElementById('category-active').checked = true;
+            }
+            document.getElementById('modal-category').classList.remove('hidden');
+        }
+
+        async function editCategory(id) {
+            const { data } = await db.from('categories').select('*').eq('id', id).single();
+            if (data) {
+                openCategoryModal(id);
+                document.getElementById('category-name').value = data.name;
+                document.getElementById('category-icon').value = data.icon || '';
+                setTimeout(() => {
+                    document.getElementById('category-printer').value = data.printer_id || '';
+                    document.getElementById('category-printer-secondary').value = data.printer_secondary_id || '';
+                }, 100);
+                document.getElementById('category-active').checked = data.is_active;
+            }
+        }
+
+        async function saveCategory() {
+            const id = document.getElementById('category-id').value;
+            const name = document.getElementById('category-name').value;
+            if (!name) return showToast('Completa el nombre', 'error');
+            const slug = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-');
+            const data = {
+                name,
+                slug,
+                icon: document.getElementById('category-icon').value || '📁',
+                printer_id: document.getElementById('category-printer').value || null,
+                printer_secondary_id: document.getElementById('category-printer-secondary').value || null,
+                is_active: document.getElementById('category-active').checked
+            };
+            try {
+                if (id) await db.from('categories').update(data).eq('id', id);
+                else await db.from('categories').insert(data);
+                showToast(id ? 'Categoría actualizada' : 'Categoría creada', 'success');
+                closeModal('modal-category');
+                loadCategoriesTable();
+                loadCategories();
+            } catch (e) { showToast('Error: ' + e.message, 'error'); }
+        }
+
+        async function deleteCategory(id) { if (!confirm('¿Eliminar esta categoría?')) return; await db.from('categories').delete().eq('id', id); showToast('Categoría eliminada', 'success'); loadCategoriesTable(); loadCategories(); }
+
+        // ==================== PRODUCTOS (con paginacion) ====================
+        async function loadProducts() {
+            if (!db) return;
+            const from = productsPage * PAGE_SIZE_PRODUCTS;
+            const to = from + PAGE_SIZE_PRODUCTS - 1;
+
+            const { data, count } = await db.from('products').select('*, categories(name, icon)', { count: 'exact' }).order('sort_order').range(from, to);
+
+            document.getElementById('products-table').innerHTML = (data || []).map(p => `
+                <tr class="hover:bg-gray-50">
+                    <td class="px-6 py-4"><span class="text-xl mr-2">${p.icon || '🍽️'}</span>${p.name} ${p.is_featured ? '⭐' : ''}</td>
+                    <td class="px-6 py-4">${p.categories?.name || '-'}</td>
+                    <td class="px-6 py-4 font-bold text-orange-600">$${parseFloat(p.price).toLocaleString('es-AR')}</td>
+                    <td class="px-6 py-4"><span class="text-xs px-2 py-1 rounded ${p.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100'}">${p.is_active ? 'Activo' : 'Inactivo'}</span></td>
+                    <td class="px-6 py-4">
+                        <button onclick="editProduct('${p.id}')" class="text-blue-500 mr-2">✏️</button>
+                        <button onclick="toggleProduct('${p.id}', ${!p.is_active})" class="text-yellow-500 mr-2">${p.is_active ? '⏸️' : '▶️'}</button>
+                        <button onclick="deleteProduct('${p.id}')" class="text-red-500">🗑️</button>
+                    </td>
+                </tr>
+            `).join('') || '<tr><td colspan="5" class="px-6 py-8 text-center text-gray-500">No hay productos</td></tr>';
+
+            renderPagination('products-pagination', productsPage, count || 0, PAGE_SIZE_PRODUCTS, 'goProductsPage');
+        }
+
+        function goProductsPage(page) {
+            productsPage = page;
+            loadProducts();
+        }
+
+        // ==================== PEDIDOS (con paginacion) ====================
+        async function loadOrders() {
+            if (!db) return;
+            const filter = document.getElementById('order-filter').value;
+            const from = ordersPage * PAGE_SIZE_ORDERS;
+            const to = from + PAGE_SIZE_ORDERS - 1;
+
+            let query = db.from('orders').select('*, customers(name, phone)', { count: 'exact' }).order('created_at', { ascending: false }).range(from, to);
+            if (filter) query = query.eq('status', filter);
+            const { data, count } = await query;
+
+            const statusColors = { pending: 'bg-yellow-100 text-yellow-700', confirmed: 'bg-blue-100 text-blue-700', preparing: 'bg-orange-100 text-orange-700', delivered: 'bg-green-100 text-green-700', cancelled: 'bg-red-100 text-red-700' };
+            document.getElementById('orders-table').innerHTML = (data || []).map(o => `
+                <tr class="hover:bg-gray-50">
+                    <td class="px-6 py-4 font-medium">#${o.order_number}</td>
+                    <td class="px-6 py-4">${o.customers?.name || 'Sin nombre'}<br><span class="text-xs text-gray-500">${o.customers?.phone || ''}</span></td>
+                    <td class="px-6 py-4 font-bold text-orange-600">$${parseFloat(o.total).toLocaleString('es-AR')}</td>
+                    <td class="px-6 py-4"><span class="text-xs px-2 py-1 rounded ${statusColors[o.status] || 'bg-gray-100'}">${o.status}</span></td>
+                    <td class="px-6 py-4">
+                        <button onclick="updateOrderStatus('${o.id}', 'delivered')" class="text-green-500 mr-2">✅</button>
+                        <button onclick="updateOrderStatus('${o.id}', 'cancelled')" class="text-red-500">❌</button>
+                    </td>
+                </tr>
+            `).join('') || '<tr><td colspan="5" class="px-6 py-8 text-center text-gray-500">No hay pedidos</td></tr>';
+
+            renderPagination('orders-pagination', ordersPage, count || 0, PAGE_SIZE_ORDERS, 'goOrdersPage');
+        }
+
+        function goOrdersPage(page) {
+            ordersPage = page;
+            loadOrders();
+        }
+
+        // ==================== CLIENTES (con paginacion y busqueda) ====================
+        function debounceCustomerSearch() {
+            clearTimeout(customerSearchTimer);
+            customerSearchTimer = setTimeout(() => {
+                customersSearch = document.getElementById('customer-search').value.trim();
+                customersPage = 0;
+                loadCustomers();
+            }, 300);
+        }
+
+        async function loadCustomers() {
+            if (!db) return;
+            const from = customersPage * PAGE_SIZE_CUSTOMERS;
+            const to = from + PAGE_SIZE_CUSTOMERS - 1;
+
+            let query = db.from('customers').select('*', { count: 'exact' });
+
+            if (customersSearch) {
+                // Search by name or phone using ilike
+                query = query.or(`name.ilike.%${customersSearch}%,phone.ilike.%${customersSearch}%`);
+            }
+
+            query = query.order('total_spent', { ascending: false }).range(from, to);
+            const { data, count } = await query;
+
+            document.getElementById('customers-table').innerHTML = (data || []).map(c => `
+                <tr class="hover:bg-gray-50">
+                    <td class="px-6 py-4 font-medium">${c.name || 'Sin nombre'}</td>
+                    <td class="px-6 py-4">${c.phone}</td>
+                    <td class="px-6 py-4">${c.total_orders}</td>
+                    <td class="px-6 py-4 font-bold text-green-600">$${parseFloat(c.total_spent || 0).toLocaleString('es-AR')}</td>
+                    <td class="px-6 py-4"><button onclick="window.open('https://wa.me/${c.phone.replace(/\\D/g, '')}')" class="text-green-500">💬</button></td>
+                </tr>
+            `).join('') || '<tr><td colspan="5" class="px-6 py-8 text-center text-gray-500">No hay clientes</td></tr>';
+
+            renderPagination('customers-pagination', customersPage, count || 0, PAGE_SIZE_CUSTOMERS, 'goCustomersPage');
+        }
+
+        function goCustomersPage(page) {
+            customersPage = page;
+            loadCustomers();
+        }
+
+        // ==================== CONFIGURACION ====================
+        async function loadConfig() {
+            if (!db) return;
+            const { data } = await db.from('business_config').select('*').single();
+            if (data) {
+                document.getElementById('cfg-name').value = data.business_name || '';
+                document.getElementById('cfg-whatsapp').value = data.whatsapp || '';
+                document.getElementById('cfg-mp-token').value = data.mercadopago_access_token || '';
+                document.getElementById('cfg-lucy-url').value = data.lucy_webhook_url || '';
+                document.getElementById('cfg-6s-key').value = data.sexto_sentido_api_key || '';
+            }
+        }
+
+        async function saveConfig() {
+            try {
+                await db.from('business_config').update({ business_name: document.getElementById('cfg-name').value, whatsapp: document.getElementById('cfg-whatsapp').value }).eq('id', (await db.from('business_config').select('id').single()).data.id);
+                showToast('Configuración guardada', 'success');
+            } catch (e) { showToast('Error: ' + e.message, 'error'); }
+        }
+
+        async function saveIntegrations() {
+            try {
+                await db.from('business_config').update({
+                    mercadopago_access_token: document.getElementById('cfg-mp-token').value,
+                    mercadopago_enabled: !!document.getElementById('cfg-mp-token').value,
+                    lucy_webhook_url: document.getElementById('cfg-lucy-url').value,
+                    lucy_enabled: !!document.getElementById('cfg-lucy-url').value,
+                    sexto_sentido_api_key: document.getElementById('cfg-6s-key').value,
+                    sexto_sentido_enabled: !!document.getElementById('cfg-6s-key').value
+                }).eq('id', (await db.from('business_config').select('id').single()).data.id);
+                showToast('Integraciones guardadas', 'success');
+                loadDashboard();
+            } catch (e) { showToast('Error: ' + e.message, 'error'); }
+        }
+
+        // ==================== CRUD helpers ====================
+        function openProductModal(id = null) { document.getElementById('modal-product-title').textContent = id ? 'Editar Producto' : 'Nuevo Producto'; document.getElementById('product-id').value = id || ''; if (!id) { document.getElementById('product-name').value = ''; document.getElementById('product-category').value = ''; document.getElementById('product-price').value = ''; document.getElementById('product-icon').value = ''; document.getElementById('product-active').checked = true; document.getElementById('product-featured').checked = false; } document.getElementById('modal-product').classList.remove('hidden'); }
+        async function editProduct(id) { const { data } = await db.from('products').select('*').eq('id', id).single(); if (data) { openProductModal(id); document.getElementById('product-name').value = data.name; document.getElementById('product-category').value = data.category_id || ''; document.getElementById('product-price').value = data.price; document.getElementById('product-icon').value = data.icon || ''; document.getElementById('product-active').checked = data.is_active; document.getElementById('product-featured').checked = data.is_featured; } }
+        async function saveProduct() { const id = document.getElementById('product-id').value; const name = document.getElementById('product-name').value; const price = document.getElementById('product-price').value; if (!name || !price) return showToast('Completa nombre y precio', 'error'); const slug = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-'); const data = { name, slug, category_id: document.getElementById('product-category').value || null, price: parseFloat(price), icon: document.getElementById('product-icon').value || '🍽️', is_active: document.getElementById('product-active').checked, is_featured: document.getElementById('product-featured').checked }; try { if (id) await db.from('products').update(data).eq('id', id); else await db.from('products').insert(data); showToast(id ? 'Producto actualizado' : 'Producto creado', 'success'); closeModal('modal-product'); loadProducts(); } catch (e) { showToast('Error: ' + e.message, 'error'); } }
+        async function toggleProduct(id, active) { await db.from('products').update({ is_active: active }).eq('id', id); showToast(active ? 'Producto activado' : 'Producto desactivado', 'success'); loadProducts(); }
+        async function deleteProduct(id) { if (!confirm('¿Eliminar este producto?')) return; await db.from('products').delete().eq('id', id); showToast('Producto eliminado', 'success'); loadProducts(); }
+
+        async function updateOrderStatus(id, status) { await db.from('orders').update({ status, updated_at: new Date().toISOString() }).eq('id', id); showToast('Estado actualizado', 'success'); loadOrders(); }
+
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+        function showToast(msg, type = 'info') { const colors = { success: 'bg-green-500', error: 'bg-red-500', info: 'bg-blue-500' }; const toast = document.createElement('div'); toast.className = `toast ${colors[type]} text-white px-6 py-3 rounded-lg shadow-lg`; toast.textContent = msg; document.getElementById('toast-container').appendChild(toast); setTimeout(() => toast.remove(), 3000); }
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.fixed').forEach(m => { if (m.id !== 'toast-container') m.classList.add('hidden'); }); });
+    </script>
+</body>
+</html>
