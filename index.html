@@ -521,69 +521,60 @@
         // Create Supabase client immediately
         db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        // Check session on load
-        checkSession();
+        let appInitialized = false;
 
-        async function checkSession() {
-            const loading = document.getElementById('login-loading');
-            loading.classList.remove('hidden');
-
-            try {
-                const { data: { session } } = await db.auth.getSession();
-                if (session) {
-                    await handleAuthSession(session);
-                } else {
-                    loading.classList.add('hidden');
-                }
-            } catch (e) {
-                loading.classList.add('hidden');
-                console.error('Error checking session:', e);
-            }
-        }
-
-        // Listen for auth state changes (handles redirect callback)
+        // Single auth handler - onAuthStateChange fires on load AND on redirect
         db.auth.onAuthStateChange(async (event, session) => {
-            if (event === 'SIGNED_IN' && session) {
-                await handleAuthSession(session);
-            } else if (event === 'SIGNED_OUT') {
-                currentUser = null;
-                document.getElementById('main-app').classList.add('hidden');
-                document.getElementById('login-screen').classList.remove('hidden');
-            }
-        });
-
-        async function handleAuthSession(session) {
-            const email = session.user.email;
+            console.log('Auth event:', event, session?.user?.email);
             const loading = document.getElementById('login-loading');
             const error = document.getElementById('login-error');
 
-            // Check authorized email
-            if (!AUTHORIZED_EMAILS.includes(email)) {
-                await db.auth.signOut();
+            if (session && !appInitialized) {
+                const email = session.user.email;
+
+                // Check authorized email
+                if (!AUTHORIZED_EMAILS.includes(email)) {
+                    await db.auth.signOut();
+                    loading.classList.add('hidden');
+                    error.textContent = 'Acceso denegado. El email ' + email + ' no esta autorizado.';
+                    error.classList.remove('hidden');
+                    return;
+                }
+
+                appInitialized = true;
+                currentUser = session.user;
+                error.classList.add('hidden');
                 loading.classList.add('hidden');
-                error.textContent = 'Acceso denegado. El email ' + email + ' no esta autorizado.';
-                error.classList.remove('hidden');
-                return;
+
+                // Update user info in sidebar
+                const name = currentUser.user_metadata?.full_name || currentUser.email;
+                document.getElementById('user-name').textContent = name;
+                document.getElementById('user-email').textContent = currentUser.email;
+                document.getElementById('user-avatar').textContent = (name || '?')[0].toUpperCase();
+
+                // Show app
+                document.getElementById('login-screen').classList.add('hidden');
+                document.getElementById('main-app').classList.remove('hidden');
+
+                loadDashboard();
+                loadCategories();
+                showToast('Bienvenido, ' + name, 'success');
+
+            } else if (event === 'SIGNED_OUT') {
+                appInitialized = false;
+                currentUser = null;
+                document.getElementById('main-app').classList.add('hidden');
+                document.getElementById('login-screen').classList.remove('hidden');
+                loading.classList.add('hidden');
             }
+        });
 
-            currentUser = session.user;
-            error.classList.add('hidden');
-            loading.classList.add('hidden');
-
-            // Update user info in sidebar
-            const name = currentUser.user_metadata?.full_name || currentUser.email;
-            document.getElementById('user-name').textContent = name;
-            document.getElementById('user-email').textContent = currentUser.email;
-            document.getElementById('user-avatar').textContent = (name || '?')[0].toUpperCase();
-
-            // Show app
-            document.getElementById('login-screen').classList.add('hidden');
-            document.getElementById('main-app').classList.remove('hidden');
-
-            loadDashboard();
-            loadCategories();
-            showToast('Bienvenido, ' + name, 'success');
-        }
+        // Fallback: if onAuthStateChange doesn't fire INITIAL_SESSION within 3s, hide loading
+        setTimeout(() => {
+            if (!appInitialized) {
+                document.getElementById('login-loading').classList.add('hidden');
+            }
+        }, 3000);
 
         async function loginWithGoogle() {
             const error = document.getElementById('login-error');
