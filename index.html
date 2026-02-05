@@ -31,7 +31,22 @@
                     <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
                     <span>Iniciar sesion con Google</span>
                 </button>
+
+                <div class="relative my-4">
+                    <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-300"></div></div>
+                    <div class="relative flex justify-center text-sm"><span class="px-2 bg-white text-gray-500">o</span></div>
+                </div>
+
+                <div id="magic-link-form">
+                    <div class="flex space-x-2">
+                        <input type="email" id="magic-email" class="flex-1 border rounded-lg px-4 py-3" placeholder="tu@email.com" value="nicohernaez22@gmail.com">
+                        <button onclick="loginWithMagicLink()" class="bg-orange-500 text-white px-4 py-3 rounded-lg font-semibold hover:bg-orange-600 whitespace-nowrap">Enviar link</button>
+                    </div>
+                    <p class="text-xs text-gray-400 mt-2 text-center">Te enviamos un link de acceso a tu email</p>
+                </div>
+
                 <p id="login-error" class="text-red-500 text-sm text-center hidden"></p>
+                <p id="login-success" class="text-green-600 text-sm text-center hidden"></p>
                 <p id="login-loading" class="text-gray-500 text-sm text-center hidden pulse">Verificando sesion...</p>
             </div>
         </div>
@@ -584,6 +599,32 @@
                 if (authError) throw authError;
             } catch (e) {
                 error.textContent = 'Error al iniciar sesion: ' + e.message;
+                error.classList.remove('hidden');
+            }
+        }
+
+        async function loginWithMagicLink() {
+            const email = document.getElementById('magic-email').value.trim();
+            const error = document.getElementById('login-error');
+            const success = document.getElementById('login-success');
+            error.classList.add('hidden');
+            success.classList.add('hidden');
+
+            if (!email) { error.textContent = 'Ingresa tu email'; error.classList.remove('hidden'); return; }
+            if (!AUTHORIZED_EMAILS.includes(email)) { error.textContent = 'El email ' + email + ' no esta autorizado.'; error.classList.remove('hidden'); return; }
+
+            try {
+                const { error: authError } = await db.auth.signInWithOtp({
+                    email: email,
+                    options: {
+                        emailRedirectTo: window.location.href.split('#')[0].split('?')[0]
+                    }
+                });
+                if (authError) throw authError;
+                success.textContent = 'Link enviado a ' + email + '. Revisa tu bandeja de entrada.';
+                success.classList.remove('hidden');
+            } catch (e) {
+                error.textContent = 'Error: ' + e.message;
                 error.classList.remove('hidden');
             }
         }
