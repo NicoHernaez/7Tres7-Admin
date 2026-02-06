@@ -240,22 +240,59 @@
 
                 <!-- Clientes -->
                 <section id="section-clientes" class="hidden space-y-6">
-                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                        <h3 class="text-lg font-bold">Clientes</h3>
-                        <div class="flex items-center space-x-2">
-                            <input type="text" id="customer-search" placeholder="Buscar por nombre o telefono..." class="border rounded-lg px-4 py-2 w-64" oninput="debounceCustomerSearch()">
-                            <button onclick="customersPage=0; customersSearch=''; document.getElementById('customer-search').value=''; loadCustomers()" class="text-gray-500 hover:text-gray-700 px-2 py-2 border rounded-lg" title="Limpiar busqueda">✕</button>
+                    <!-- Stats Cards -->
+                    <div id="customer-stats" class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                        <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-blue-500">
+                            <p class="text-xs text-gray-500 uppercase">Nuevos</p>
+                            <p class="text-2xl font-bold text-blue-600" id="stat-new">-</p>
+                        </div>
+                        <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-green-500">
+                            <p class="text-xs text-gray-500 uppercase">Activos</p>
+                            <p class="text-2xl font-bold text-green-600" id="stat-active">-</p>
+                        </div>
+                        <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-purple-500">
+                            <p class="text-xs text-gray-500 uppercase">Recuperados</p>
+                            <p class="text-2xl font-bold text-purple-600" id="stat-recovered">-</p>
+                        </div>
+                        <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-yellow-500">
+                            <p class="text-xs text-gray-500 uppercase">En Riesgo</p>
+                            <p class="text-2xl font-bold text-yellow-600" id="stat-at_risk">-</p>
+                        </div>
+                        <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-red-500">
+                            <p class="text-xs text-gray-500 uppercase">Perdidos</p>
+                            <p class="text-2xl font-bold text-red-600" id="stat-churned">-</p>
                         </div>
                     </div>
-                    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
-                        <table class="w-full">
+
+                    <!-- Filtros y Busqueda -->
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div class="flex items-center space-x-2">
+                            <h3 class="text-lg font-bold">Clientes</h3>
+                            <select id="customer-filter" onchange="customersPage=0; loadCustomers()" class="border rounded-lg px-3 py-2 text-sm">
+                                <option value="">Todos</option>
+                                <option value="new">🔵 Nuevos</option>
+                                <option value="active">🟢 Activos</option>
+                                <option value="recovered">🟣 Recuperados</option>
+                                <option value="at_risk">🟡 En Riesgo</option>
+                                <option value="churned">🔴 Perdidos</option>
+                            </select>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <input type="text" id="customer-search" placeholder="Buscar por nombre o telefono..." class="border rounded-lg px-4 py-2 w-64" oninput="debounceCustomerSearch()">
+                            <button onclick="customersPage=0; customersSearch=''; document.getElementById('customer-search').value=''; document.getElementById('customer-filter').value=''; loadCustomers()" class="text-gray-500 hover:text-gray-700 px-2 py-2 border rounded-lg" title="Limpiar filtros">✕</button>
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-xl shadow-sm overflow-x-auto">
+                        <table class="w-full min-w-[700px]">
                             <thead class="bg-gray-50">
                                 <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nombre</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Telefono</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Pedidos</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Origen</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Pedidos</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Riesgo</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase"></th>
                                 </tr>
                             </thead>
                             <tbody id="customers-table" class="divide-y divide-gray-200"></tbody>
@@ -1084,30 +1121,87 @@
 
         async function loadCustomers() {
             if (!db) return;
+
+            // Cargar stats por retention_status
+            loadCustomerStats();
+
             const from = customersPage * PAGE_SIZE_CUSTOMERS;
             const to = from + PAGE_SIZE_CUSTOMERS - 1;
+            const statusFilter = document.getElementById('customer-filter')?.value || '';
 
             let query = db.from('customers').select('*', { count: 'exact' });
 
             if (customersSearch) {
-                // Search by name or phone using ilike
                 query = query.or(`name.ilike.%${customersSearch}%,phone.ilike.%${customersSearch}%`);
+            }
+
+            if (statusFilter) {
+                query = query.eq('retention_status', statusFilter);
             }
 
             query = query.order('total_spent', { ascending: false }).range(from, to);
             const { data, count } = await query;
 
-            document.getElementById('customers-table').innerHTML = (data || []).map(c => `
+            const statusBadges = {
+                'new': { emoji: '🔵', color: 'bg-blue-100 text-blue-700', label: 'Nuevo' },
+                'active': { emoji: '🟢', color: 'bg-green-100 text-green-700', label: 'Activo' },
+                'recovered': { emoji: '🟣', color: 'bg-purple-100 text-purple-700', label: 'Recuperado' },
+                'at_risk': { emoji: '🟡', color: 'bg-yellow-100 text-yellow-700', label: 'En Riesgo' },
+                'churned': { emoji: '🔴', color: 'bg-red-100 text-red-700', label: 'Perdido' }
+            };
+
+            const sourceIcons = {
+                'app': '📱', 'whatsapp': '💬', 'instagram': '📸', 'facebook': '👤',
+                'google': '🔍', 'walk_in': '🚶', 'referral': '🤝', 'mercadopago_qr': '📲', 'mercadopago_point': '💳'
+            };
+
+            document.getElementById('customers-table').innerHTML = (data || []).map(c => {
+                const status = c.retention_status || 'new';
+                const badge = statusBadges[status] || statusBadges.new;
+                const source = c.acquisition_source_typed || c.acquisition_source || 'app';
+                const sourceIcon = sourceIcons[source] || '📱';
+                const risk = parseFloat(c.churn_risk_score || 0);
+                const riskColor = risk >= 0.7 ? 'bg-red-500' : risk >= 0.5 ? 'bg-yellow-500' : risk >= 0.3 ? 'bg-orange-400' : 'bg-green-500';
+                const daysInactive = c.days_since_last_order;
+
+                return `
                 <tr class="hover:bg-gray-50">
-                    <td class="px-6 py-4 font-medium">${c.name || 'Sin nombre'}</td>
-                    <td class="px-6 py-4">${c.phone}</td>
-                    <td class="px-6 py-4">${c.total_orders}</td>
-                    <td class="px-6 py-4 font-bold text-green-600">$${parseFloat(c.total_spent || 0).toLocaleString('es-AR')}</td>
-                    <td class="px-6 py-4"><button onclick="window.open('https://wa.me/${c.phone.replace(/\\D/g, '')}')" class="text-green-500">💬</button></td>
+                    <td class="px-4 py-3">
+                        <div class="font-medium">${c.name || 'Sin nombre'}</div>
+                        <div class="text-xs text-gray-500">${c.phone}</div>
+                    </td>
+                    <td class="px-4 py-3">
+                        <span class="text-xs px-2 py-1 rounded ${badge.color}">${badge.emoji} ${badge.label}</span>
+                        ${daysInactive ? `<div class="text-[10px] text-gray-400 mt-1">${daysInactive}d sin pedir</div>` : ''}
+                    </td>
+                    <td class="px-4 py-3">
+                        <span title="${source}">${sourceIcon}</span>
+                    </td>
+                    <td class="px-4 py-3 text-center">${c.total_orders}</td>
+                    <td class="px-4 py-3 font-bold text-green-600">$${parseFloat(c.total_spent || 0).toLocaleString('es-AR')}</td>
+                    <td class="px-4 py-3">
+                        <div class="w-16 h-2 bg-gray-200 rounded-full overflow-hidden" title="${(risk * 100).toFixed(0)}% riesgo">
+                            <div class="${riskColor} h-full" style="width: ${risk * 100}%"></div>
+                        </div>
+                    </td>
+                    <td class="px-4 py-3">
+                        <button onclick="window.open('https://wa.me/${c.phone.replace(/\\D/g, '')}')" class="text-green-500 hover:text-green-600" title="Enviar WhatsApp">💬</button>
+                    </td>
                 </tr>
-            `).join('') || '<tr><td colspan="5" class="px-6 py-8 text-center text-gray-500">No hay clientes</td></tr>';
+            `}).join('') || '<tr><td colspan="7" class="px-6 py-8 text-center text-gray-500">No hay clientes</td></tr>';
 
             renderPagination('customers-pagination', customersPage, count || 0, PAGE_SIZE_CUSTOMERS, 'goCustomersPage');
+        }
+
+        async function loadCustomerStats() {
+            if (!db) return;
+            // Contar clientes por retention_status
+            const statuses = ['new', 'active', 'recovered', 'at_risk', 'churned'];
+            for (const status of statuses) {
+                const { count } = await db.from('customers').select('*', { count: 'exact', head: true }).eq('retention_status', status);
+                const el = document.getElementById(`stat-${status}`);
+                if (el) el.textContent = count || 0;
+            }
         }
 
         function goCustomersPage(page) {
