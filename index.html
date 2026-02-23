@@ -166,6 +166,18 @@
                         <h3 class="text-lg font-bold">Gestion de Productos</h3>
                         <button onclick="openProductModal()" class="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600">+ Nuevo Producto</button>
                     </div>
+                    <!-- Filtros -->
+                    <div class="flex items-center space-x-3">
+                        <select id="products-category-filter" onchange="productsPage=0; loadProducts()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                            <option value="">Todas las categorías</option>
+                        </select>
+                        <select id="products-sort" onchange="productsPage=0; loadProducts()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                            <option value="category">Ordenar por Categoría</option>
+                            <option value="name">Ordenar por Nombre</option>
+                            <option value="price_asc">Precio: Menor a Mayor</option>
+                            <option value="price_desc">Precio: Mayor a Menor</option>
+                        </select>
+                    </div>
                     <div class="bg-white rounded-xl shadow-sm overflow-hidden">
                         <table class="w-full">
                             <thead class="bg-gray-50">
@@ -961,6 +973,7 @@
             categories = data || [];
             const select = document.getElementById('product-category');
             select.innerHTML = '<option value="">Sin categoría</option>' + categories.map(c => `<option value="${c.id}">${c.icon || ''} ${c.name}</option>`).join('');
+            populateProductsCategoryFilter();
         }
 
         async function loadCategoriesTable() {
@@ -1047,17 +1060,54 @@
         async function deleteCategory(id) { if (!confirm('¿Eliminar esta categoría?')) return; await db.from('categories').delete().eq('id', id); showToast('Categoría eliminada', 'success'); loadCategoriesTable(); loadCategories(); }
 
         // ==================== PRODUCTOS (con paginacion) ====================
+        function populateProductsCategoryFilter() {
+            const filter = document.getElementById('products-category-filter');
+            if (!filter || !categories) return;
+            const current = filter.value;
+            filter.innerHTML = '<option value="">Todas las categorías</option>' +
+                categories.map(c => `<option value="${c.id}">${c.icon || ''} ${c.name}</option>`).join('');
+            filter.value = current;
+        }
+
         async function loadProducts() {
             if (!db) return;
             const from = productsPage * PAGE_SIZE_PRODUCTS;
             const to = from + PAGE_SIZE_PRODUCTS - 1;
 
-            const { data, count } = await db.from('products').select('*, categories(name, icon)', { count: 'exact' }).order('sort_order').range(from, to);
+            const categoryFilter = document.getElementById('products-category-filter')?.value || '';
+            const sortOption = document.getElementById('products-sort')?.value || 'category';
 
-            document.getElementById('products-table').innerHTML = (data || []).map(p => `
+            let query = db.from('products').select('*, categories(name, icon, sort_order)', { count: 'exact' });
+
+            if (categoryFilter) {
+                query = query.eq('category_id', categoryFilter);
+            }
+
+            if (sortOption === 'name') {
+                query = query.order('name');
+            } else if (sortOption === 'price_asc') {
+                query = query.order('price', { ascending: true });
+            } else if (sortOption === 'price_desc') {
+                query = query.order('price', { ascending: false });
+            } else {
+                query = query.order('category_id').order('name');
+            }
+
+            const { data, count } = await query.range(from, to);
+
+            // Agrupar por categoría si el sort es por categoría
+            let lastCategory = '';
+            let rowsHTML = '';
+            (data || []).forEach(p => {
+                const catName = p.categories?.name || 'Sin categoría';
+                if (sortOption === 'category' && catName !== lastCategory) {
+                    rowsHTML += `<tr class="bg-orange-50"><td colspan="5" class="px-6 py-2 font-bold text-orange-700 text-sm">${p.categories?.icon || '📁'} ${catName}</td></tr>`;
+                    lastCategory = catName;
+                }
+                rowsHTML += `
                 <tr class="hover:bg-gray-50">
                     <td class="px-6 py-4"><span class="text-xl mr-2">${p.icon || '🍽️'}</span>${p.name} ${p.is_featured ? '⭐' : ''}</td>
-                    <td class="px-6 py-4">${p.categories?.name || '-'}</td>
+                    <td class="px-6 py-4">${catName}</td>
                     <td class="px-6 py-4 font-bold text-orange-600">$${parseFloat(p.price).toLocaleString('es-AR')}</td>
                     <td class="px-6 py-4"><span class="text-xs px-2 py-1 rounded ${p.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100'}">${p.is_active ? 'Activo' : 'Inactivo'}</span></td>
                     <td class="px-6 py-4">
@@ -1065,8 +1115,10 @@
                         <button onclick="toggleProduct('${p.id}', ${!p.is_active})" class="text-yellow-500 mr-2">${p.is_active ? '⏸️' : '▶️'}</button>
                         <button onclick="deleteProduct('${p.id}')" class="text-red-500">🗑️</button>
                     </td>
-                </tr>
-            `).join('') || '<tr><td colspan="5" class="px-6 py-8 text-center text-gray-500">No hay productos</td></tr>';
+                </tr>`;
+            });
+
+            document.getElementById('products-table').innerHTML = rowsHTML || '<tr><td colspan="5" class="px-6 py-8 text-center text-gray-500">No hay productos</td></tr>';
 
             renderPagination('products-pagination', productsPage, count || 0, PAGE_SIZE_PRODUCTS, 'goProductsPage');
         }
