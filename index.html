@@ -1523,38 +1523,32 @@
                     itemsByPrinter[printer].push(item);
                 }
 
-                // Construir jobs: { host, printer, data }
-                const jobs = [];
+                // Construir todos los print jobs
+                const allJobs = [];
                 for (const [printer, items] of Object.entries(itemsByPrinter)) {
                     if (printer !== PRINTERS.BARRA) {
-                        jobs.push({ host: PRINTER_HOST_MAP[printer], printer, data: buildKitchenTicketData(items, order.order_number, deliveryInfo) });
+                        allJobs.push({ printer, data: buildKitchenTicketData(items, order.order_number, deliveryInfo) });
                     }
                 }
-                // Ticket completo siempre en Barra
-                jobs.push({ host: PRINTER_HOST_MAP[PRINTERS.BARRA], printer: PRINTERS.BARRA, data: buildFullTicketData(order) });
+                allJobs.push({ printer: PRINTERS.BARRA, data: buildFullTicketData(order) });
 
-                // Agrupar por host para conexion secuencial
-                const jobsByHost = {};
-                for (const job of jobs) {
-                    if (!jobsByHost[job.host]) jobsByHost[job.host] = [];
-                    jobsByHost[job.host].push(job);
-                }
+                // Conectar a localhost e imprimir todo lo que esta PC tenga
+                if (qz.websocket.isActive()) await qz.websocket.disconnect();
+                qz.security.setCertificatePromise(function(resolve) { resolve(); });
+                qz.security.setSignaturePromise(function() { return function(resolve) { resolve(); }; });
+                await qz.websocket.connect();
 
-                // Conectar a cada host secuencialmente, imprimir, desconectar
                 let printed = 0;
-                for (const [host, hostJobs] of Object.entries(jobsByHost)) {
-                    const connected = await connectQZHost(host);
-                    if (!connected) {
-                        showToast(`No se pudo conectar a QZ Tray en ${host}`, 'error');
-                        continue;
-                    }
-                    for (const job of hostJobs) {
+                for (const job of allJobs) {
+                    try {
                         const config = qz.configs.create(job.printer);
                         await qz.print(config, job.data);
                         printed++;
+                    } catch (printErr) {
+                        console.warn('Impresora ' + job.printer + ' no disponible en esta PC:', printErr.message);
                     }
-                    await disconnectQZ();
                 }
+                await disconnectQZ();
 
                 if (printed > 0) showToast(`Pedido #${order.order_number} enviado a imprimir (${printed} tickets)`, 'success');
             } catch (e) {
