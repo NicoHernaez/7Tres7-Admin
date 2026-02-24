@@ -6,6 +6,7 @@
     <title>7Tres7 - Panel de Administración</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qz-tray@2/qz-tray.min.js"></script>
     <style>
         .sidebar-item:hover { background-color: rgba(249, 115, 22, 0.1); }
         .sidebar-item.active { background-color: rgba(249, 115, 22, 0.2); border-left: 4px solid #f97316; }
@@ -228,19 +229,21 @@
                             <option value="pending">Pendientes</option>
                             <option value="confirmed">Confirmados</option>
                             <option value="preparing">En preparacion</option>
+                            <option value="ready">Listos</option>
                             <option value="delivered">Entregados</option>
                             <option value="cancelled">Cancelados</option>
                         </select>
                     </div>
-                    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                    <div class="bg-white rounded-xl shadow-sm overflow-hidden overflow-x-auto">
                         <table class="w-full">
                             <thead class="bg-gray-50">
                                 <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">#</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">#</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Items</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody id="orders-table" class="divide-y divide-gray-200"></tbody>
@@ -371,6 +374,25 @@
                                     <input type="text" id="cfg-whatsapp" class="w-full border rounded-lg px-3 py-2">
                                 </div>
                                 <button onclick="saveConfig()" class="w-full bg-orange-500 text-white py-2 rounded-lg">Guardar</button>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-xl p-6 shadow-sm">
+                            <h4 class="font-bold mb-4">🚚 Delivery</h4>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Costo de envio ($)</label>
+                                    <input type="number" id="cfg-delivery-fee" class="w-full border rounded-lg px-3 py-2" placeholder="3000">
+                                    <p class="text-xs text-gray-400 mt-1">Se suma al total cuando el cliente elige envio a domicilio</p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Tiempo estimado (minutos)</label>
+                                    <input type="number" id="cfg-delivery-time" class="w-full border rounded-lg px-3 py-2" placeholder="45">
+                                </div>
+                                <div class="flex items-center">
+                                    <input type="checkbox" id="cfg-delivery-enabled" class="mr-2">
+                                    <label class="text-sm font-medium">Delivery habilitado</label>
+                                </div>
+                                <button onclick="saveDeliveryConfig()" class="w-full bg-blue-500 text-white py-2 rounded-lg">Guardar Delivery</button>
                             </div>
                         </div>
                         <div class="bg-white rounded-xl p-6 shadow-sm">
@@ -1139,19 +1161,58 @@
             if (filter) query = query.eq('status', filter);
             const { data, count } = await query;
 
-            const statusColors = { pending: 'bg-yellow-100 text-yellow-700', confirmed: 'bg-blue-100 text-blue-700', preparing: 'bg-orange-100 text-orange-700', delivered: 'bg-green-100 text-green-700', cancelled: 'bg-red-100 text-red-700' };
-            document.getElementById('orders-table').innerHTML = (data || []).map(o => `
-                <tr class="hover:bg-gray-50">
-                    <td class="px-6 py-4 font-medium">#${o.order_number}</td>
-                    <td class="px-6 py-4">${o.customers?.name || 'Sin nombre'}<br><span class="text-xs text-gray-500">${o.customers?.phone || ''}</span></td>
-                    <td class="px-6 py-4 font-bold text-orange-600">$${parseFloat(o.total).toLocaleString('es-AR')}</td>
-                    <td class="px-6 py-4"><span class="text-xs px-2 py-1 rounded ${statusColors[o.status] || 'bg-gray-100'}">${o.status}</span></td>
-                    <td class="px-6 py-4">
-                        <button onclick="updateOrderStatus('${o.id}', 'delivered')" class="text-green-500 mr-2">✅</button>
-                        <button onclick="updateOrderStatus('${o.id}', 'cancelled')" class="text-red-500">❌</button>
+            const statusColors = { pending: 'bg-yellow-100 text-yellow-700', confirmed: 'bg-blue-100 text-blue-700', preparing: 'bg-orange-100 text-orange-700', ready: 'bg-purple-100 text-purple-700', delivered: 'bg-green-100 text-green-700', cancelled: 'bg-red-100 text-red-700' };
+            const statusLabels = { pending: 'Pendiente', confirmed: 'Confirmado', preparing: 'Preparando', ready: 'Listo', delivered: 'Entregado', cancelled: 'Cancelado' };
+            const paymentLabels = { mercadopago: '💳 MP', cash: '💵 Efectivo', transfer: '🏦 Transferencia' };
+
+            document.getElementById('orders-table').innerHTML = (data || []).map(o => {
+                const items = (o.items || []);
+                const itemsSummary = items.map(i => `${i.quantity}x ${i.name}`).join(', ');
+                const customerName = o.customers?.name || (o.customer_notes?.match(/Nombre: ([^|]+)/)?.[1]?.trim()) || 'Sin nombre';
+                const customerPhone = o.customers?.phone || (o.customer_notes?.match(/Tel: ([^|]+)/)?.[1]?.trim()) || '';
+                const deliveryLabel = o.delivery_type === 'pickup' ? '🏪 Retira' : '🚚 Delivery';
+                const time = new Date(o.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+
+                // Botones de accion segun estado actual
+                let actions = '';
+                if (o.status === 'pending') {
+                    actions = `<button onclick="updateOrderStatus('${o.id}', 'confirmed')" class="px-2 py-1 bg-blue-500 text-white text-xs rounded mr-1" title="Confirmar">Confirmar</button>
+                               <button onclick="updateOrderStatus('${o.id}', 'cancelled')" class="px-2 py-1 bg-red-100 text-red-600 text-xs rounded" title="Cancelar">Cancelar</button>`;
+                } else if (o.status === 'confirmed') {
+                    actions = `<button onclick="updateOrderStatus('${o.id}', 'preparing')" class="px-2 py-1 bg-orange-500 text-white text-xs rounded mr-1">Preparando</button>`;
+                } else if (o.status === 'preparing') {
+                    actions = `<button onclick="updateOrderStatus('${o.id}', 'ready')" class="px-2 py-1 bg-purple-500 text-white text-xs rounded mr-1">Listo</button>`;
+                } else if (o.status === 'ready') {
+                    actions = `<button onclick="updateOrderStatus('${o.id}', 'delivered')" class="px-2 py-1 bg-green-500 text-white text-xs rounded mr-1">Entregado</button>`;
+                }
+                // Boton imprimir siempre visible (menos cancelados)
+                if (o.status !== 'cancelled') {
+                    actions += `<button onclick="printOrder('${o.id}')" class="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded ml-1" title="Imprimir">🖨️</button>`;
+                }
+
+                return `
+                <tr class="hover:bg-gray-50 border-b">
+                    <td class="px-4 py-3">
+                        <div class="font-bold text-lg">#${o.order_number}</div>
+                        <div class="text-xs text-gray-500">${time}</div>
                     </td>
-                </tr>
-            `).join('') || '<tr><td colspan="5" class="px-6 py-8 text-center text-gray-500">No hay pedidos</td></tr>';
+                    <td class="px-4 py-3">
+                        <div class="font-medium">${customerName}</div>
+                        <div class="text-xs text-gray-500">${customerPhone}</div>
+                        <div class="text-xs mt-1">${deliveryLabel}${o.delivery_type === 'delivery' && o.delivery_address ? ' - ' + o.delivery_address : ''}</div>
+                    </td>
+                    <td class="px-4 py-3">
+                        <div class="text-xs text-gray-600 max-w-xs truncate" title="${itemsSummary}">${itemsSummary || 'Sin items'}</div>
+                    </td>
+                    <td class="px-4 py-3">
+                        <div class="font-bold text-orange-600">$${parseFloat(o.total).toLocaleString('es-AR')}</div>
+                        <div class="text-xs text-gray-500">${paymentLabels[o.payment_method] || o.payment_method || ''}</div>
+                        ${o.delivery_fee > 0 ? '<div class="text-xs text-blue-500">+ envio $' + parseFloat(o.delivery_fee).toLocaleString('es-AR') + '</div>' : ''}
+                    </td>
+                    <td class="px-4 py-3"><span class="text-xs px-2 py-1 rounded ${statusColors[o.status] || 'bg-gray-100'}">${statusLabels[o.status] || o.status}</span></td>
+                    <td class="px-4 py-3">${actions}</td>
+                </tr>`;
+            }).join('') || '<tr><td colspan="6" class="px-6 py-8 text-center text-gray-500">No hay pedidos</td></tr>';
 
             renderPagination('orders-pagination', ordersPage, count || 0, PAGE_SIZE_ORDERS, 'goOrdersPage');
         }
@@ -1271,6 +1332,9 @@
                 document.getElementById('cfg-mp-token').value = data.mercadopago_access_token || '';
                 document.getElementById('cfg-lucy-url').value = data.lucy_webhook_url || '';
                 document.getElementById('cfg-6s-key').value = data.sexto_sentido_api_key || '';
+                document.getElementById('cfg-delivery-fee').value = data.delivery_fee || 3000;
+                document.getElementById('cfg-delivery-time').value = data.delivery_time_minutes || 45;
+                document.getElementById('cfg-delivery-enabled').checked = data.delivery_enabled !== false;
             }
         }
 
@@ -1278,6 +1342,18 @@
             try {
                 await db.from('business_config').update({ business_name: document.getElementById('cfg-name').value, whatsapp: document.getElementById('cfg-whatsapp').value }).eq('id', (await db.from('business_config').select('id').single()).data.id);
                 showToast('Configuración guardada', 'success');
+            } catch (e) { showToast('Error: ' + e.message, 'error'); }
+        }
+
+        async function saveDeliveryConfig() {
+            try {
+                const configId = (await db.from('business_config').select('id').single()).data.id;
+                await db.from('business_config').update({
+                    delivery_fee: parseFloat(document.getElementById('cfg-delivery-fee').value) || 0,
+                    delivery_time_minutes: parseInt(document.getElementById('cfg-delivery-time').value) || 45,
+                    delivery_enabled: document.getElementById('cfg-delivery-enabled').checked
+                }).eq('id', configId);
+                showToast('Configuracion de delivery guardada', 'success');
             } catch (e) { showToast('Error: ' + e.message, 'error'); }
         }
 
@@ -1308,6 +1384,129 @@
         function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
         function showToast(msg, type = 'info') { const colors = { success: 'bg-green-500', error: 'bg-red-500', info: 'bg-blue-500' }; const toast = document.createElement('div'); toast.className = `toast ${colors[type]} text-white px-6 py-3 rounded-lg shadow-lg`; toast.textContent = msg; document.getElementById('toast-container').appendChild(toast); setTimeout(() => toast.remove(), 3000); }
         document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.fixed').forEach(m => { if (m.id !== 'toast-container') m.classList.add('hidden'); }); });
+
+        // ==================== QZ TRAY - IMPRESION ====================
+        const PRINTERS = { BARRA: 'Barra', MINUTA: 'Minuta', PARRILLA: 'Parrilla Delivery' };
+        const CATEGORY_PRINTER_MAP = {
+            'empanadas': PRINTERS.MINUTA, 'minutas': PRINTERS.MINUTA, 'pizzas': PRINTERS.MINUTA, 'postres': PRINTERS.MINUTA,
+            'restaurant': PRINTERS.PARRILLA, 'pastas': PRINTERS.PARRILLA, 'carnes': PRINTERS.PARRILLA, 'parrilla': PRINTERS.PARRILLA,
+            'bebidas': PRINTERS.BARRA, 'gaseosas': PRINTERS.BARRA, 'cervezas': PRINTERS.BARRA, 'vinos': PRINTERS.BARRA
+        };
+        let qzConnected = false;
+
+        async function connectQZ() {
+            if (qzConnected) return true;
+            try {
+                if (typeof qz === 'undefined') { showToast('QZ Tray no cargado', 'error'); return false; }
+                await qz.websocket.connect();
+                qzConnected = true;
+                console.log('QZ Tray conectado');
+                return true;
+            } catch (e) {
+                console.warn('QZ Tray no disponible:', e.message);
+                return false;
+            }
+        }
+
+        function getPrinterForCategory(cat) {
+            return CATEGORY_PRINTER_MAP[(cat || '').toLowerCase().trim()] || PRINTERS.BARRA;
+        }
+
+        async function printKitchenTicket(printerName, items, orderNumber, deliveryInfo) {
+            const config = qz.configs.create(printerName);
+            const data = [
+                '\x1B\x40', '\x1B\x61\x01', '\x1B\x21\x30',
+                `PEDIDO #${orderNumber}\n`,
+                '\x1B\x21\x00', `${deliveryInfo}\n`,
+                '\x1B\x61\x00', '--------------------------------\n'
+            ];
+            for (const item of items) {
+                data.push('\x1B\x21\x10', `${item.quantity}x ${item.name}\n`, '\x1B\x21\x00');
+                if (item.obs) data.push(`   -> ${item.obs}\n`);
+                if (item.cooking_method) data.push(`   [${item.cooking_method === 'frito' ? 'Frita' : item.cooking_method === 'horno' ? 'Al Horno' : item.cooking_method}]\n`);
+            }
+            data.push('--------------------------------\n', `${new Date().toLocaleTimeString('es-AR')}\n`, '\n\n\n', '\x1D\x56\x00');
+            await qz.print(config, data);
+        }
+
+        async function printFullTicket(order) {
+            const config = qz.configs.create(PRINTERS.BARRA);
+            const deliveryInfo = order.delivery_type === 'pickup' ? 'RETIRA EN LOCAL' : `DELIVERY - ${order.delivery_address || ''}`;
+            const payLabel = order.payment_method === 'mercadopago' ? 'Mercado Pago' : order.payment_method === 'cash' ? 'Efectivo' : (order.payment_method || '');
+            const data = [
+                '\x1B\x40', '\x1B\x61\x01', '\x1B\x21\x30', '7TRES7\n',
+                '\x1B\x21\x00', 'Restaurant & Delivery\n', 'Calle 18 N 737 - Gral. Pico\n', 'Tel: 2302 51-5656\n',
+                '================================\n', '\x1B\x61\x00',
+                `Pedido: #${order.order_number}\n`, `${deliveryInfo}\n`,
+                `Fecha: ${new Date(order.created_at).toLocaleString('es-AR')}\n`, '--------------------------------\n'
+            ];
+            for (const item of (order.items || [])) {
+                const nameStr = (`${item.quantity}x ${item.name}`).substring(0, 24).padEnd(24);
+                const priceStr = ('$' + (item.subtotal || item.price * item.quantity).toLocaleString('es-AR')).padStart(8);
+                data.push(`${nameStr}${priceStr}\n`);
+            }
+            data.push('--------------------------------\n');
+            data.push(`${'Subtotal:'.padEnd(24)}$${parseFloat(order.subtotal).toLocaleString('es-AR').padStart(8)}\n`);
+            if (parseFloat(order.discount) > 0) data.push(`${'Descuento:'.padEnd(24)}-$${parseFloat(order.discount).toLocaleString('es-AR').padStart(7)}\n`);
+            if (parseFloat(order.delivery_fee) > 0) data.push(`${'Envio:'.padEnd(24)}$${parseFloat(order.delivery_fee).toLocaleString('es-AR').padStart(8)}\n`);
+            data.push('================================\n', '\x1B\x21\x10');
+            data.push(`${'TOTAL:'.padEnd(24)}$${parseFloat(order.total).toLocaleString('es-AR').padStart(8)}\n`);
+            data.push('\x1B\x21\x00', `Pago: ${payLabel}\n`, '================================\n');
+            data.push('\x1B\x61\x01', 'Gracias por tu compra!\n', 'Instagram: @737resto\n', '\n\n\n', '\x1D\x56\x00');
+            await qz.print(config, data);
+        }
+
+        async function printOrder(orderId) {
+            try {
+                // Obtener datos completos del pedido
+                const { data: order, error } = await db.from('orders').select('*').eq('id', orderId).single();
+                if (error || !order) { showToast('Error obteniendo pedido', 'error'); return; }
+
+                const connected = await connectQZ();
+                if (!connected) { showToast('No se pudo conectar a QZ Tray. Verifica que este corriendo.', 'error'); return; }
+
+                const deliveryInfo = order.delivery_type === 'pickup' ? 'RETIRA EN LOCAL' : `DELIVERY - ${order.delivery_address || ''}`;
+
+                // Agrupar items por impresora
+                const itemsByPrinter = {};
+                for (const item of (order.items || [])) {
+                    const cat = item.category || inferCategoryFromName(item.name);
+                    const printer = getPrinterForCategory(cat);
+                    if (!itemsByPrinter[printer]) itemsByPrinter[printer] = [];
+                    itemsByPrinter[printer].push(item);
+                }
+
+                const promises = [];
+                // Comandas de cocina (excluye Barra)
+                for (const [printer, items] of Object.entries(itemsByPrinter)) {
+                    if (printer !== PRINTERS.BARRA) {
+                        promises.push(printKitchenTicket(printer, items, order.order_number, deliveryInfo));
+                    }
+                }
+                // Ticket completo en Barra
+                promises.push(printFullTicket(order));
+
+                await Promise.all(promises);
+                showToast(`Pedido #${order.order_number} enviado a imprimir`, 'success');
+            } catch (e) {
+                console.error('Error imprimiendo:', e);
+                showToast('Error al imprimir: ' + e.message, 'error');
+            }
+        }
+
+        // Inferir categoria desde el nombre del item (fallback si no tiene category)
+        function inferCategoryFromName(name) {
+            if (!name) return 'otro';
+            const n = name.toLowerCase();
+            if (n.includes('empanada') || n.includes('emp ')) return 'empanadas';
+            if (n.includes('pizza')) return 'pizzas';
+            if (n.includes('lomito') || n.includes('milanesa') || n.includes('hamburguesa') || n.includes('suprema')) return 'minutas';
+            if (n.includes('flan') || n.includes('helado') || n.includes('cheese')) return 'postres';
+            if (n.includes('sorrentino') || n.includes('tagliatelle') || n.includes('lasagna') || n.includes('noqui') || n.includes('raviole')) return 'pastas';
+            if (n.includes('bife') || n.includes('asado') || n.includes('bondiola') || n.includes('matambre') || n.includes('pollo')) return 'parrilla';
+            if (n.includes('coca') || n.includes('fanta') || n.includes('sprite') || n.includes('agua') || n.includes('cerveza') || n.includes('vino')) return 'bebidas';
+            return 'minutas'; // default a minuta
+        }
     </script>
 </body>
 </html>
