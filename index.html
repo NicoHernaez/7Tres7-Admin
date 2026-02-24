@@ -1387,33 +1387,42 @@
 
         // ==================== QZ TRAY - IMPRESION ====================
         const PRINTERS = { BARRA: 'Barra', MINUTA: 'Minuta', PARRILLA: 'Parrilla Delivery' };
+        const QZ_HOSTS = { BARRA: '192.168.1.6', COCINA: '192.168.1.9' };
+        const PRINTER_HOST_MAP = {
+            [PRINTERS.BARRA]: QZ_HOSTS.BARRA,
+            [PRINTERS.MINUTA]: QZ_HOSTS.COCINA,
+            [PRINTERS.PARRILLA]: QZ_HOSTS.COCINA
+        };
         const CATEGORY_PRINTER_MAP = {
             'empanadas': PRINTERS.MINUTA, 'minutas': PRINTERS.MINUTA, 'pizzas': PRINTERS.MINUTA, 'postres': PRINTERS.MINUTA,
             'restaurant': PRINTERS.PARRILLA, 'pastas': PRINTERS.PARRILLA, 'carnes': PRINTERS.PARRILLA, 'parrilla': PRINTERS.PARRILLA,
             'bebidas': PRINTERS.BARRA, 'gaseosas': PRINTERS.BARRA, 'cervezas': PRINTERS.BARRA, 'vinos': PRINTERS.BARRA
         };
-        let qzConnected = false;
 
-        async function connectQZ() {
-            if (qzConnected) return true;
+        async function connectQZHost(host) {
             try {
-                if (typeof qz === 'undefined') { showToast('QZ Tray no cargado', 'error'); return false; }
-                await qz.websocket.connect();
-                qzConnected = true;
-                console.log('QZ Tray conectado');
+                if (typeof qz === 'undefined') return false;
+                if (qz.websocket.isActive()) await qz.websocket.disconnect();
+                qz.security.setCertificatePromise(function(resolve) { resolve(); });
+                qz.security.setSignaturePromise(function() { return function(resolve) { resolve(); }; });
+                await qz.websocket.connect({ host: host });
+                console.log('QZ Tray conectado a', host);
                 return true;
             } catch (e) {
-                console.warn('QZ Tray no disponible:', e.message);
+                console.warn('QZ Tray no disponible en ' + host + ':', e.message);
                 return false;
             }
+        }
+
+        async function disconnectQZ() {
+            try { if (typeof qz !== 'undefined' && qz.websocket.isActive()) await qz.websocket.disconnect(); } catch (e) {}
         }
 
         function getPrinterForCategory(cat) {
             return CATEGORY_PRINTER_MAP[(cat || '').toLowerCase().trim()] || PRINTERS.BARRA;
         }
 
-        async function printKitchenTicket(printerName, items, orderNumber, deliveryInfo) {
-            const config = qz.configs.create(printerName);
+        function buildKitchenTicketData(items, orderNumber, deliveryInfo) {
             const data = [
                 '\x1B\x40', '\x1B\x61\x01', '\x1B\x21\x30',
                 `PEDIDO #${orderNumber}\n`,
@@ -1426,11 +1435,10 @@
                 if (item.cooking_method) data.push(`   [${item.cooking_method === 'frito' ? 'Frita' : item.cooking_method === 'horno' ? 'Al Horno' : item.cooking_method}]\n`);
             }
             data.push('--------------------------------\n', `${new Date().toLocaleTimeString('es-AR')}\n`, '\n\n\n', '\x1D\x56\x00');
-            await qz.print(config, data);
+            return data;
         }
 
-        async function printFullTicket(order) {
-            const config = qz.configs.create(PRINTERS.BARRA);
+        function buildFullTicketData(order) {
             const deliveryInfo = order.delivery_type === 'pickup' ? 'RETIRA EN LOCAL' : `DELIVERY - ${order.delivery_address || ''}`;
             const payLabel = order.payment_method === 'mercadopago' ? 'Mercado Pago' : order.payment_method === 'cash' ? 'Efectivo' : (order.payment_method || '');
             const data = [
@@ -1453,17 +1461,14 @@
             data.push(`${'TOTAL:'.padEnd(24)}$${parseFloat(order.total).toLocaleString('es-AR').padStart(8)}\n`);
             data.push('\x1B\x21\x00', `Pago: ${payLabel}\n`, '================================\n');
             data.push('\x1B\x61\x01', 'Gracias por tu compra!\n', 'Instagram: @737resto\n', '\n\n\n', '\x1D\x56\x00');
-            await qz.print(config, data);
+            return data;
         }
 
         async function printOrder(orderId) {
             try {
-                // Obtener datos completos del pedido
                 const { data: order, error } = await db.from('orders').select('*').eq('id', orderId).single();
                 if (error || !order) { showToast('Error obteniendo pedido', 'error'); return; }
-
-                const connected = await connectQZ();
-                if (!connected) { showToast('No se pudo conectar a QZ Tray. Verifica que este corriendo.', 'error'); return; }
+                if (typeof qz === 'undefined') { showToast('QZ Tray no cargado', 'error'); return; }
 
                 const deliveryInfo = order.delivery_type === 'pickup' ? 'RETIRA EN LOCAL' : `DELIVERY - ${order.delivery_address || ''}`;
 
@@ -1476,27 +1481,49 @@
                     itemsByPrinter[printer].push(item);
                 }
 
-                const promises = [];
-                // Comandas de cocina (excluye Barra)
+                // Construir jobs: { host, printer, data }
+                const jobs = [];
                 for (const [printer, items] of Object.entries(itemsByPrinter)) {
                     if (printer !== PRINTERS.BARRA) {
-                        promises.push(printKitchenTicket(printer, items, order.order_number, deliveryInfo));
+                        jobs.push({ host: PRINTER_HOST_MAP[printer], printer, data: buildKitchenTicketData(items, order.order_number, deliveryInfo) });
                     }
                 }
-                // Ticket completo en Barra
-                promises.push(printFullTicket(order));
+                // Ticket completo siempre en Barra
+                jobs.push({ host: PRINTER_HOST_MAP[PRINTERS.BARRA], printer: PRINTERS.BARRA, data: buildFullTicketData(order) });
 
-                await Promise.all(promises);
-                showToast(`Pedido #${order.order_number} enviado a imprimir`, 'success');
+                // Agrupar por host para conexion secuencial
+                const jobsByHost = {};
+                for (const job of jobs) {
+                    if (!jobsByHost[job.host]) jobsByHost[job.host] = [];
+                    jobsByHost[job.host].push(job);
+                }
+
+                // Conectar a cada host secuencialmente, imprimir, desconectar
+                let printed = 0;
+                for (const [host, hostJobs] of Object.entries(jobsByHost)) {
+                    const connected = await connectQZHost(host);
+                    if (!connected) {
+                        showToast(`No se pudo conectar a QZ Tray en ${host}`, 'error');
+                        continue;
+                    }
+                    for (const job of hostJobs) {
+                        const config = qz.configs.create(job.printer);
+                        await qz.print(config, job.data);
+                        printed++;
+                    }
+                    await disconnectQZ();
+                }
+
+                if (printed > 0) showToast(`Pedido #${order.order_number} enviado a imprimir (${printed} tickets)`, 'success');
             } catch (e) {
                 console.error('Error imprimiendo:', e);
                 showToast('Error al imprimir: ' + e.message, 'error');
+                await disconnectQZ();
             }
         }
 
-        // Inferir categoria desde el nombre del item (fallback si no tiene category)
         function inferCategoryFromName(name) {
-            if (!name) return 'otro';
+            if (!name) return 'minutas';
             const n = name.toLowerCase();
             if (n.includes('empanada') || n.includes('emp ')) return 'empanadas';
             if (n.includes('pizza')) return 'pizzas';
@@ -1505,7 +1532,7 @@
             if (n.includes('sorrentino') || n.includes('tagliatelle') || n.includes('lasagna') || n.includes('noqui') || n.includes('raviole')) return 'pastas';
             if (n.includes('bife') || n.includes('asado') || n.includes('bondiola') || n.includes('matambre') || n.includes('pollo')) return 'parrilla';
             if (n.includes('coca') || n.includes('fanta') || n.includes('sprite') || n.includes('agua') || n.includes('cerveza') || n.includes('vino')) return 'bebidas';
-            return 'minutas'; // default a minuta
+            return 'minutas';
         }
     </script>
 </body>
