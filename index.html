@@ -359,7 +359,7 @@
                     </div>
                 </section>
 
-                <!-- Configuración -->
+                <!-- Horarios -->
                 <section id="section-horarios" class="hidden space-y-6">
                     <h3 class="text-lg font-bold">Horarios del Negocio</h3>
                     <div id="horarios-status" class="p-3 rounded-lg text-center text-sm font-medium"></div>
@@ -367,6 +367,7 @@
                     <button onclick="saveHorarios()" class="w-full bg-orange-500 text-white py-3 rounded-lg font-bold text-lg">Guardar Horarios</button>
                 </section>
 
+                <!-- Configuración -->
                 <section id="section-config" class="hidden space-y-6">
                     <h3 class="text-lg font-bold">Configuración</h3>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -880,7 +881,7 @@
                         <span class="text-xs ${j.status === 'printing' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'} px-2 py-1 rounded">
                             ${j.status === 'printing' ? '🖨️ Imprimiendo' : '⏳ Pendiente'}
                         </span>
-                        <button onclick="retryPrintJob('${j.id}')" class="text-blue-500">🔄</button>
+                        <button onclick="printOrder('${j.order_id}')" class="text-blue-500" title="Reimprimir">🔄</button>
                     </div>
                 </div>
             `).join('');
@@ -1501,7 +1502,49 @@
         async function toggleProduct(id, active) { await db.from('products').update({ is_active: active }).eq('id', id); showToast(active ? 'Producto activado' : 'Producto desactivado', 'success'); loadProducts(); }
         async function deleteProduct(id) { if (!confirm('¿Eliminar este producto?')) return; await db.from('products').delete().eq('id', id); showToast('Producto eliminado', 'success'); loadProducts(); }
 
-        async function updateOrderStatus(id, status) { await db.from('orders').update({ status, updated_at: new Date().toISOString() }).eq('id', id); showToast('Estado actualizado', 'success'); loadOrders(); }
+        async function updateOrderStatus(id, status) {
+            const updateData = { status, updated_at: new Date().toISOString() };
+            if (status === 'confirmed') updateData.confirmed_at = new Date().toISOString();
+            else if (status === 'preparing') updateData.preparing_at = new Date().toISOString();
+            else if (status === 'ready') updateData.ready_at = new Date().toISOString();
+            else if (status === 'delivered') updateData.delivered_at = new Date().toISOString();
+            else if (status === 'cancelled') updateData.cancelled_at = new Date().toISOString();
+
+            await db.from('orders').update(updateData).eq('id', id);
+            showToast('Estado actualizado', 'success');
+
+            // Al confirmar: imprimir + notificar cliente por WhatsApp
+            if (status === 'confirmed') {
+                printOrder(id);
+                notifyCustomerWhatsApp(id, 'confirmed');
+            } else if (status === 'ready') {
+                notifyCustomerWhatsApp(id, 'ready');
+            }
+
+            loadOrders();
+        }
+
+        async function notifyCustomerWhatsApp(orderId, event) {
+            try {
+                const { data: order } = await db.from('orders').select('*, customers(name, phone)').eq('id', orderId).single();
+                if (!order) return;
+                const phone = order.customers?.phone || (order.customer_notes?.match(/Tel: ([^|]+)/)?.[1]?.trim());
+                if (!phone) { showToast('Sin telefono del cliente para notificar', 'info'); return; }
+                const cleanPhone = phone.replace(/\D/g, '');
+                const deliveryLabel = order.delivery_type === 'pickup' ? 'retiro en local' : 'delivery';
+
+                let msg = '';
+                if (event === 'confirmed') {
+                    msg = `Hola ${order.customers?.name || ''}! Tu pedido #${order.order_number} fue *confirmado* y ya estamos preparandolo. Tipo: ${deliveryLabel}. Total: $${parseFloat(order.total).toLocaleString('es-AR')}. Gracias por elegir 7Tres7!`;
+                } else if (event === 'ready') {
+                    msg = order.delivery_type === 'pickup'
+                        ? `Hola ${order.customers?.name || ''}! Tu pedido #${order.order_number} esta *listo para retirar*. Te esperamos en Calle 18 N 737. Gracias!`
+                        : `Hola ${order.customers?.name || ''}! Tu pedido #${order.order_number} esta *listo* y sale en camino. Gracias por elegir 7Tres7!`;
+                }
+
+                window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+            } catch (e) { console.warn('Error notificando:', e); }
+        }
 
         function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
         function showToast(msg, type = 'info') { const colors = { success: 'bg-green-500', error: 'bg-red-500', info: 'bg-blue-500' }; const toast = document.createElement('div'); toast.className = `toast ${colors[type]} text-white px-6 py-3 rounded-lg shadow-lg`; toast.textContent = msg; document.getElementById('toast-container').appendChild(toast); setTimeout(() => toast.remove(), 3000); }
@@ -1509,33 +1552,42 @@
 
         // ==================== QZ TRAY - IMPRESION ====================
         const PRINTERS = { BARRA: 'Barra', MINUTA: 'Minuta', PARRILLA: 'Parrilla Delivery' };
+        const QZ_HOSTS = { BARRA: '192.168.1.6', COCINA: '192.168.1.9' };
+        const PRINTER_HOST_MAP = {
+            [PRINTERS.BARRA]: QZ_HOSTS.BARRA,
+            [PRINTERS.MINUTA]: QZ_HOSTS.COCINA,
+            [PRINTERS.PARRILLA]: QZ_HOSTS.COCINA
+        };
         const CATEGORY_PRINTER_MAP = {
             'empanadas': PRINTERS.MINUTA, 'minutas': PRINTERS.MINUTA, 'pizzas': PRINTERS.MINUTA, 'postres': PRINTERS.MINUTA,
             'restaurant': PRINTERS.PARRILLA, 'pastas': PRINTERS.PARRILLA, 'carnes': PRINTERS.PARRILLA, 'parrilla': PRINTERS.PARRILLA,
             'bebidas': PRINTERS.BARRA, 'gaseosas': PRINTERS.BARRA, 'cervezas': PRINTERS.BARRA, 'vinos': PRINTERS.BARRA
         };
-        let qzConnected = false;
 
-        async function connectQZ() {
-            if (qzConnected) return true;
+        async function connectQZHost(host) {
             try {
-                if (typeof qz === 'undefined') { showToast('QZ Tray no cargado', 'error'); return false; }
-                await qz.websocket.connect();
-                qzConnected = true;
-                console.log('QZ Tray conectado');
+                if (typeof qz === 'undefined') return false;
+                if (qz.websocket.isActive()) await qz.websocket.disconnect();
+                qz.security.setCertificatePromise(function(resolve) { resolve(); });
+                qz.security.setSignaturePromise(function() { return function(resolve) { resolve(); }; });
+                await qz.websocket.connect({ host: host });
+                console.log('QZ Tray conectado a', host);
                 return true;
             } catch (e) {
-                console.warn('QZ Tray no disponible:', e.message);
+                console.warn('QZ Tray no disponible en ' + host + ':', e.message);
                 return false;
             }
+        }
+
+        async function disconnectQZ() {
+            try { if (typeof qz !== 'undefined' && qz.websocket.isActive()) await qz.websocket.disconnect(); } catch (e) {}
         }
 
         function getPrinterForCategory(cat) {
             return CATEGORY_PRINTER_MAP[(cat || '').toLowerCase().trim()] || PRINTERS.BARRA;
         }
 
-        async function printKitchenTicket(printerName, items, orderNumber, deliveryInfo) {
-            const config = qz.configs.create(printerName);
+        function buildKitchenTicketData(items, orderNumber, deliveryInfo) {
             const data = [
                 '\x1B\x40', '\x1B\x61\x01', '\x1B\x21\x30',
                 `PEDIDO #${orderNumber}\n`,
@@ -1548,11 +1600,10 @@
                 if (item.cooking_method) data.push(`   [${item.cooking_method === 'frito' ? 'Frita' : item.cooking_method === 'horno' ? 'Al Horno' : item.cooking_method}]\n`);
             }
             data.push('--------------------------------\n', `${new Date().toLocaleTimeString('es-AR')}\n`, '\n\n\n', '\x1D\x56\x00');
-            await qz.print(config, data);
+            return data;
         }
 
-        async function printFullTicket(order) {
-            const config = qz.configs.create(PRINTERS.BARRA);
+        function buildFullTicketData(order) {
             const deliveryInfo = order.delivery_type === 'pickup' ? 'RETIRA EN LOCAL' : `DELIVERY - ${order.delivery_address || ''}`;
             const payLabel = order.payment_method === 'mercadopago' ? 'Mercado Pago' : order.payment_method === 'cash' ? 'Efectivo' : (order.payment_method || '');
             const data = [
@@ -1575,17 +1626,14 @@
             data.push(`${'TOTAL:'.padEnd(24)}$${parseFloat(order.total).toLocaleString('es-AR').padStart(8)}\n`);
             data.push('\x1B\x21\x00', `Pago: ${payLabel}\n`, '================================\n');
             data.push('\x1B\x61\x01', 'Gracias por tu compra!\n', 'Instagram: @737resto\n', '\n\n\n', '\x1D\x56\x00');
-            await qz.print(config, data);
+            return data;
         }
 
         async function printOrder(orderId) {
             try {
-                // Obtener datos completos del pedido
                 const { data: order, error } = await db.from('orders').select('*').eq('id', orderId).single();
                 if (error || !order) { showToast('Error obteniendo pedido', 'error'); return; }
-
-                const connected = await connectQZ();
-                if (!connected) { showToast('No se pudo conectar a QZ Tray. Verifica que este corriendo.', 'error'); return; }
+                if (typeof qz === 'undefined') { showToast('QZ Tray no cargado', 'error'); return; }
 
                 const deliveryInfo = order.delivery_type === 'pickup' ? 'RETIRA EN LOCAL' : `DELIVERY - ${order.delivery_address || ''}`;
 
@@ -1598,27 +1646,43 @@
                     itemsByPrinter[printer].push(item);
                 }
 
-                const promises = [];
-                // Comandas de cocina (excluye Barra)
+                // Construir todos los print jobs
+                const allJobs = [];
                 for (const [printer, items] of Object.entries(itemsByPrinter)) {
                     if (printer !== PRINTERS.BARRA) {
-                        promises.push(printKitchenTicket(printer, items, order.order_number, deliveryInfo));
+                        allJobs.push({ printer, data: buildKitchenTicketData(items, order.order_number, deliveryInfo) });
                     }
                 }
-                // Ticket completo en Barra
-                promises.push(printFullTicket(order));
+                allJobs.push({ printer: PRINTERS.BARRA, data: buildFullTicketData(order) });
 
-                await Promise.all(promises);
-                showToast(`Pedido #${order.order_number} enviado a imprimir`, 'success');
+                // Conectar a localhost e imprimir todo lo que esta PC tenga
+                if (qz.websocket.isActive()) await qz.websocket.disconnect();
+                qz.security.setCertificatePromise(function(resolve) { resolve(); });
+                qz.security.setSignaturePromise(function() { return function(resolve) { resolve(); }; });
+                await qz.websocket.connect();
+
+                let printed = 0;
+                for (const job of allJobs) {
+                    try {
+                        const config = qz.configs.create(job.printer);
+                        await qz.print(config, job.data);
+                        printed++;
+                    } catch (printErr) {
+                        console.warn('Impresora ' + job.printer + ' no disponible en esta PC:', printErr.message);
+                    }
+                }
+                await disconnectQZ();
+
+                if (printed > 0) showToast(`Pedido #${order.order_number} enviado a imprimir (${printed} tickets)`, 'success');
             } catch (e) {
                 console.error('Error imprimiendo:', e);
                 showToast('Error al imprimir: ' + e.message, 'error');
+                await disconnectQZ();
             }
         }
 
-        // Inferir categoria desde el nombre del item (fallback si no tiene category)
         function inferCategoryFromName(name) {
-            if (!name) return 'otro';
+            if (!name) return 'minutas';
             const n = name.toLowerCase();
             if (n.includes('empanada') || n.includes('emp ')) return 'empanadas';
             if (n.includes('pizza')) return 'pizzas';
@@ -1627,7 +1691,7 @@
             if (n.includes('sorrentino') || n.includes('tagliatelle') || n.includes('lasagna') || n.includes('noqui') || n.includes('raviole')) return 'pastas';
             if (n.includes('bife') || n.includes('asado') || n.includes('bondiola') || n.includes('matambre') || n.includes('pollo')) return 'parrilla';
             if (n.includes('coca') || n.includes('fanta') || n.includes('sprite') || n.includes('agua') || n.includes('cerveza') || n.includes('vino')) return 'bebidas';
-            return 'minutas'; // default a minuta
+            return 'minutas';
         }
     </script>
 </body>

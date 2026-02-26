@@ -1,0 +1,14 @@
+{
+  "plugins": ["html"],
+  "env": { "browser": true, "es2021": true },
+  "parserOptions": { "ecmaVersion": "latest" },
+  "rules": {
+    "no-undef": "warn",
+    "no-unused-vars": "off",
+    "no-redeclare": "warn",
+    "no-constant-condition": "warn"
+  },
+  "globals": {
+    "supabase": "readonly"
+  }
+}

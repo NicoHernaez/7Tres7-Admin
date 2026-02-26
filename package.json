@@ -1,0 +1,15 @@
+{
+  "name": "7tres7-admin",
+  "private": true,
+  "scripts": {
+    "lint:html": "htmlhint index.html",
+    "lint:js": "eslint index.html",
+    "lint": "npm run lint:html && npm run lint:js",
+    "validate": "node -e \"const f=require('fs').readFileSync('index.html','utf8'); if(f.length<1000) process.exit(1); console.log('OK:',f.length,'bytes');\""
+  },
+  "devDependencies": {
+    "htmlhint": "^1.1.4",
+    "eslint": "^8.57.0",
+    "eslint-plugin-html": "^8.1.1"
+  }
+}
